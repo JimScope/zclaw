@@ -7,6 +7,7 @@
 #include "nvs_keys.h"
 #include "telegram_poll_policy.h"
 #include "text_buffer.h"
+#include "cJSON.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
 #include "esp_tls.h"
@@ -618,6 +619,28 @@ static const char *get_stub_response(const char *request_json)
 }
 #endif
 
+// Returns a new request body with the model replaced, or NULL when the body
+// already uses fallback_model (or on parse failure). Caller frees.
+static char *llm_swap_model_in_request(const char *request_json, const char *fallback_model)
+{
+    cJSON *root = cJSON_Parse(request_json);
+    if (!root) {
+        return NULL;
+    }
+
+    cJSON *model = cJSON_GetObjectItem(root, "model");
+    if (!model || !cJSON_IsString(model) ||
+        strcmp(model->valuestring, fallback_model) == 0) {
+        cJSON_Delete(root);
+        return NULL;
+    }
+
+    cJSON_ReplaceItemInObject(root, "model", cJSON_CreateString(fallback_model));
+    char *out = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    return out;
+}
+
 esp_err_t llm_request(const char *request_json, char *response_buf, size_t response_buf_size)
 {
     if (!request_json || !response_buf || response_buf_size == 0) {
@@ -647,6 +670,7 @@ esp_err_t llm_request(const char *request_json, char *response_buf, size_t respo
     int64_t started_us = esp_timer_get_time();
     net_diag_snapshot_t snapshot_before = {0};
     net_diag_snapshot_t snapshot_after = {0};
+    char *fallback_body = NULL;
     int status = -1;
     int http_gate_wait_ms = 0;
     bool gate_acquired = false;
@@ -754,6 +778,19 @@ esp_err_t llm_request(const char *request_json, char *response_buf, size_t respo
 
     esp_http_client_cleanup(client);
     http_gate_release();
+
+    // Model fallback: tier/rate errors retry once with LLM_FALLBACK_MODEL.
+    // llm_swap_model_in_request returns NULL when the body already carries the
+    // fallback model, which bounds the recursion to a single extra attempt.
+    if (err != ESP_OK && (status == 403 || status == 429)) {
+        fallback_body = llm_swap_model_in_request(request_json, LLM_FALLBACK_MODEL);
+        if (fallback_body) {
+            ESP_LOGW(TAG, "Model unavailable (status %d), falling back to %s",
+                     status, LLM_FALLBACK_MODEL);
+            err = llm_request(fallback_body, response_buf, response_buf_size);
+            free(fallback_body);
+        }
+    }
 
     return err;
 #endif

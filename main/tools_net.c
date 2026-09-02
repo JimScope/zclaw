@@ -134,6 +134,93 @@ bool tools_sms_send_handler(const cJSON *input, char *result, size_t result_len)
     return true;
 }
 
+#define WEB_SEARCH_HTML_MAX 6144
+
+static void url_encode(const char *in, char *out, size_t out_len)
+{
+    static const char hex[] = "0123456789ABCDEF";
+    size_t o = 0;
+
+    for (const unsigned char *p = (const unsigned char *)in;
+         *p && o + 4 < out_len; p++) {
+        if ((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+            (*p >= '0' && *p <= '9') || *p == '-' || *p == '_' || *p == '.') {
+            out[o++] = (char)*p;
+        } else if (*p == ' ') {
+            out[o++] = '+';
+        } else {
+            out[o++] = '%';
+            out[o++] = hex[*p >> 4];
+            out[o++] = hex[*p & 0x0F];
+        }
+    }
+    out[o] = '\0';
+}
+
+static void html_strip_into(const char *html, char *out, size_t out_len)
+{
+    size_t o = 0;
+    bool in_tag = false;
+    bool last_space = true;
+
+    for (const char *p = html; *p && o + 1 < out_len; p++) {
+        if (*p == '<') { in_tag = true;  continue; }
+        if (*p == '>') { in_tag = false; continue; }
+        if (in_tag) continue;
+
+        char c = *p;
+        if (c == '\n' || c == '\r' || c == '\t') c = ' ';
+        if (c == ' ') {
+            if (last_space) continue;
+            last_space = true;
+        } else {
+            last_space = false;
+        }
+        out[o++] = c;
+    }
+    out[o] = '\0';
+}
+
+bool tools_web_search_handler(const cJSON *input, char *result, size_t result_len)
+{
+    const cJSON *query = cJSON_GetObjectItem(input, "query");
+
+    if (!query || !cJSON_IsString(query) || query->valuestring[0] == '\0') {
+        snprintf(result, result_len, "Error: 'query' required");
+        return false;
+    }
+
+    char encoded[192];
+    char url[256];
+    url_encode(query->valuestring, encoded, sizeof(encoded));
+    snprintf(url, sizeof(url), "https://lite.duckduckgo.com/lite/?q=%s", encoded);
+
+    if (!http_gate_acquire("web_search", pdMS_TO_TICKS(NET_TOOL_GATE_MS))) {
+        snprintf(result, result_len, "Error: HTTP busy, try again");
+        return false;
+    }
+
+    static char html[WEB_SEARCH_HTML_MAX];
+    int status = net_http_request(url, HTTP_METHOD_GET,
+                                  "User-Agent", "Mozilla/5.0 (compatible; zclaw-esp32)",
+                                  NULL, html, sizeof(html));
+    http_gate_release();
+
+    if (status < 0) {
+        snprintf(result, result_len, "Error: search request failed (network)");
+        return false;
+    }
+    if (status < 200 || status >= 300) {
+        snprintf(result, result_len, "Error: search HTTP %d", status);
+        return false;
+    }
+
+    char text[480];
+    html_strip_into(html, text, sizeof(text));
+    snprintf(result, result_len, "Search results (truncated): %s", text);
+    return true;
+}
+
 bool tools_http_get_handler(const cJSON *input, char *result, size_t result_len)
 {
     const cJSON *url = cJSON_GetObjectItem(input, "url");

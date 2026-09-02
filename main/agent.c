@@ -15,6 +15,10 @@
 #include "cJSON.h"
 #include "esp_timer.h"
 #include "esp_log.h"
+#include "esp_system.h"
+#include "esp_wifi.h"
+#include "ota.h"
+#include "tools_handlers.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -445,6 +449,31 @@ static void process_message(const char *user_message, message_source_t source, i
     if (agent_is_command(user_message, "help")) {
         handle_start_command(reply_chat_id);
         metrics_log_request(&metrics, "help_handled");
+        return;
+    }
+
+    if (agent_is_command(user_message, "status")) {
+        char status_buf[CHANNEL_TX_BUF_SIZE];
+        int64_t up_min = esp_timer_get_time() / 60000000LL;
+        wifi_ap_record_t ap = {0};
+        int rssi = (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) ? ap.rssi : 0;
+        snprintf(status_buf, sizeof(status_buf),
+                 "Uptime: %lld min\nHeap libre: %lu (min %lu)\nWiFi RSSI: %d dBm\n"
+                 "Modelo: %s\nFirmware: %s",
+                 (long long)up_min,
+                 (unsigned long)esp_get_free_heap_size(),
+                 (unsigned long)esp_get_minimum_free_heap_size(),
+                 rssi, llm_get_model(), ota_get_version());
+        send_response(status_buf, reply_chat_id);
+        metrics_log_request(&metrics, "status_handled");
+        return;
+    }
+
+    if (agent_is_command(user_message, "temp")) {
+        char temp_buf[128];
+        tools_chip_temp_handler(NULL, temp_buf, sizeof(temp_buf));
+        send_response(temp_buf, reply_chat_id);
+        metrics_log_request(&metrics, "temp_handled");
         return;
     }
 

@@ -41,10 +41,30 @@ static int s_wifi_retry_num = 0;
 static uint8_t s_last_disconnect_reason = 0;
 static char s_target_ssid[64] = {0};
 static char s_current_ip[16] = {0};
+static char s_primary_ssid[64] = {0};
+static char s_primary_pass[64] = {0};
+static bool s_using_fallback = false;
+static int s_runtime_retry = 0;
 
 #define LOCAL_ADMIN_WIFI_CONNECTED_BIT BIT0
 #define LOCAL_ADMIN_WIFI_FAIL_BIT      BIT1
 #define LOCAL_ADMIN_WIFI_SCAN_LIMIT    6
+
+static bool wifi_fallback_available(void)
+{
+    return CONFIG_ZCLAW_WIFI_FALLBACK_SSID[0] != '\0';
+}
+
+static void wifi_apply_sta_credentials(const char *ssid, const char *pass)
+{
+    wifi_config_t cfg = {0};
+
+    wifi_credentials_copy_to_sta_config(cfg.sta.ssid, cfg.sta.password, ssid, pass);
+    cfg.sta.threshold.authmode = pass[0] ? WIFI_AUTH_WPA_PSK : WIFI_AUTH_OPEN;
+    esp_wifi_set_config(WIFI_IF_STA, &cfg);
+    strncpy(s_target_ssid, ssid, sizeof(s_target_ssid) - 1);
+    s_target_ssid[sizeof(s_target_ssid) - 1] = '\0';
+}
 
 #ifndef WIFI_REASON_BEACON_TIMEOUT
 #define WIFI_REASON_BEACON_TIMEOUT 200
@@ -147,7 +167,26 @@ static void local_admin_wifi_event_handler(void *arg,
 
         if (s_wifi_connect_in_progress && s_wifi_event_group) {
             xEventGroupSetBits(s_wifi_event_group, LOCAL_ADMIN_WIFI_FAIL_BIT);
+            return;
         }
+
+        // Runtime drop (already past initial connect): keep reconnecting
+        // forever, alternating to the fallback network every WIFI_MAX_RETRY
+        // failed attempts so an outage on one AP does not strand the device.
+        s_runtime_retry++;
+        if (wifi_fallback_available() && (s_runtime_retry % WIFI_MAX_RETRY) == 0) {
+            s_using_fallback = !s_using_fallback;
+            if (s_using_fallback) {
+                ESP_LOGW(TAG, "Switching to fallback WiFi: %s",
+                         CONFIG_ZCLAW_WIFI_FALLBACK_SSID);
+                wifi_apply_sta_credentials(CONFIG_ZCLAW_WIFI_FALLBACK_SSID,
+                                           CONFIG_ZCLAW_WIFI_FALLBACK_PASSWORD);
+            } else {
+                ESP_LOGW(TAG, "Switching back to primary WiFi: %s", s_primary_ssid);
+                wifi_apply_sta_credentials(s_primary_ssid, s_primary_pass);
+            }
+        }
+        esp_wifi_connect();
         return;
     }
 
@@ -156,6 +195,7 @@ static void local_admin_wifi_event_handler(void *arg,
         s_wifi_connected = true;
         s_wifi_connect_in_progress = false;
         s_wifi_retry_num = 0;
+        s_runtime_retry = 0;
         snprintf(s_current_ip, sizeof(s_current_ip), IPSTR, IP2STR(&event->ip_info.ip));
         ESP_LOGI(TAG, "Connected: %s", s_current_ip);
         if (s_wifi_event_group) {
@@ -622,9 +662,14 @@ bool local_admin_wifi_connect_from_store(void)
 
     strncpy(s_target_ssid, ssid, sizeof(s_target_ssid) - 1);
     s_target_ssid[sizeof(s_target_ssid) - 1] = '\0';
+    strncpy(s_primary_ssid, ssid, sizeof(s_primary_ssid) - 1);
+    s_primary_ssid[sizeof(s_primary_ssid) - 1] = '\0';
+    strncpy(s_primary_pass, pass, sizeof(s_primary_pass) - 1);
+    s_primary_pass[sizeof(s_primary_pass) - 1] = '\0';
     s_current_ip[0] = '\0';
     s_last_disconnect_reason = 0;
     s_wifi_retry_num = 0;
+    s_using_fallback = false;
     s_wifi_connected = false;
     s_wifi_connect_in_progress = true;
     xEventGroupClearBits(s_wifi_event_group,
@@ -643,6 +688,34 @@ bool local_admin_wifi_connect_from_store(void)
     err = esp_wifi_connect();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to start WiFi connect: %s", esp_err_to_name(err));
+        return false;
+    }
+
+    bits = xEventGroupWaitBits(s_wifi_event_group,
+                               LOCAL_ADMIN_WIFI_CONNECTED_BIT | LOCAL_ADMIN_WIFI_FAIL_BIT,
+                               pdFALSE, pdFALSE, portMAX_DELAY);
+    if ((bits & LOCAL_ADMIN_WIFI_CONNECTED_BIT) != 0) {
+        return true;
+    }
+
+    if (!wifi_fallback_available()) {
+        return false;
+    }
+
+    ESP_LOGW(TAG, "Primary WiFi unreachable, trying fallback: %s",
+             CONFIG_ZCLAW_WIFI_FALLBACK_SSID);
+    s_using_fallback = true;
+    s_last_disconnect_reason = 0;
+    s_wifi_retry_num = 0;
+    s_wifi_connect_in_progress = true;
+    xEventGroupClearBits(s_wifi_event_group,
+                         LOCAL_ADMIN_WIFI_CONNECTED_BIT | LOCAL_ADMIN_WIFI_FAIL_BIT);
+    wifi_apply_sta_credentials(CONFIG_ZCLAW_WIFI_FALLBACK_SSID,
+                               CONFIG_ZCLAW_WIFI_FALLBACK_PASSWORD);
+
+    err = esp_wifi_connect();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start fallback WiFi connect: %s", esp_err_to_name(err));
         return false;
     }
 

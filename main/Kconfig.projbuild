@@ -91,6 +91,18 @@ menu "zclaw Configuration"
                 When set (non-empty), this list is used instead of min/max range.
     endmenu
 
+    config ZCLAW_WIFI_FALLBACK_SSID
+        string "Fallback WiFi SSID (optional)"
+        default ""
+        help
+            Secondary network tried when the primary WiFi is unreachable,
+            both at boot and after runtime disconnections (e.g. a phone
+            hotspot that survives power outages). Empty disables fallback.
+
+    config ZCLAW_WIFI_FALLBACK_PASSWORD
+        string "Fallback WiFi password"
+        default ""
+
     config ZCLAW_VENDEL_URL
         string "Vendel SMS gateway send endpoint"
         default "https://app.vendel.cc/api/sms/send"
