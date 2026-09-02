@@ -13,6 +13,11 @@ idf_component_register(
         "tools_common.c"
         "gpio_policy.c"
         "tools_gpio.c"
+        "tools_led.c"
+        "tools_net.c"
+        "tools_ota.c"
+        "tools_export.c"
+        "tools_tsens.c"
         "tools_i2c.c"
         "tools_dht.c"
         "tools_memory.c"
@@ -23,6 +28,7 @@ idf_component_register(
         "json_util.c"
         "telegram.c"
         "telegram_http_diag.c"
+        "telegram_ota.c"
         "telegram_poll_policy.c"
         "telegram_targets.c"
         "telegram_chat_ids.c"
@@ -50,7 +56,9 @@ idf_component_register(
         driver
         lwip
         esp_driver_usb_serial_jtag
+        esp_driver_tsens
         app_update
+        esp_https_ota
 )
 
 set(ZCLAW_RELEASE_VERSION "dev")

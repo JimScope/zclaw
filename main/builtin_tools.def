@@ -20,10 +20,40 @@ TOOL_ENTRY("gpio_read_all",
            "Read all allowed GPIO states.",
            "{\"type\":\"object\",\"properties\":{}}",
            tools_gpio_read_all_handler)
+TOOL_ENTRY("led_set",
+           "Set the onboard RGB LED color (0,0,0 turns it off).",
+           "{\"type\":\"object\",\"properties\":{\"r\":{\"type\":\"integer\"},\"g\":{\"type\":\"integer\"},\"b\":{\"type\":\"integer\"}},\"required\":[\"r\",\"g\",\"b\"]}",
+           tools_led_set_handler)
+TOOL_ENTRY("led_blink",
+           "Blink the onboard RGB LED N times in ONE call. Optional on_ms/off_ms (default 300) and r/g/b color (default white).",
+           "{\"type\":\"object\",\"properties\":{\"times\":{\"type\":\"integer\"},\"on_ms\":{\"type\":\"integer\"},\"off_ms\":{\"type\":\"integer\"},\"r\":{\"type\":\"integer\"},\"g\":{\"type\":\"integer\"},\"b\":{\"type\":\"integer\"}},\"required\":[\"times\"]}",
+           tools_led_blink_handler)
 TOOL_ENTRY("delay",
            "Wait in milliseconds.",
            "{\"type\":\"object\",\"properties\":{\"milliseconds\":{\"type\":\"integer\"}},\"required\":[\"milliseconds\"]}",
            tools_delay_handler)
+TOOL_ENTRY("ota_update",
+           "Download new firmware from a URL (zclaw.bin) and restart to apply. Use only when the user explicitly asks to update.",
+           "{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"}},\"required\":[\"url\"]}",
+           tools_ota_update_handler)
+TOOL_ENTRY("memory_export",
+           "Backup: send all saved user memories (u_*) to the owner's Telegram chat.",
+           "{\"type\":\"object\",\"properties\":{}}",
+           tools_memory_export_handler)
+TOOL_ENTRY("sms_send",
+           "Send an SMS via the Vendel gateway. 'to' is a phone number in international format.",
+           "{\"type\":\"object\",\"properties\":{\"to\":{\"type\":\"string\"},\"message\":{\"type\":\"string\"}},\"required\":[\"to\",\"message\"]}",
+           tools_sms_send_handler)
+TOOL_ENTRY("http_get",
+           "HTTP GET a URL and return status plus first 440 bytes of body. Prefer compact JSON APIs.",
+           "{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"}},\"required\":[\"url\"]}",
+           tools_http_get_handler)
+TOOL_ENTRY("chip_temp",
+           "Read the chip's internal temperature sensor (Celsius).",
+           "{\"type\":\"object\",\"properties\":{}}",
+           tools_chip_temp_handler)
+// Disabled: no I2C/DHT hardware connected (re-enable by removing this #if 0)
+#if 0
 TOOL_ENTRY("i2c_scan",
            "Scan an I2C bus for devices.",
            "{\"type\":\"object\",\"properties\":{\"sda_pin\":{\"type\":\"integer\"},\"scl_pin\":{\"type\":\"integer\"},\"frequency_hz\":{\"type\":\"integer\"}},\"required\":[\"sda_pin\",\"scl_pin\"]}",
@@ -44,6 +74,7 @@ TOOL_ENTRY("dht_read",
            "Read a DHT11 or DHT22 sensor.",
            "{\"type\":\"object\",\"properties\":{\"pin\":{\"type\":\"integer\"},\"model\":{\"type\":\"string\",\"enum\":[\"dht11\",\"dht22\"]},\"retries\":{\"type\":\"integer\"}},\"required\":[\"pin\",\"model\"]}",
            tools_dht_read_handler)
+#endif
 
 // Memory
 TOOL_ENTRY("memory_set",
@@ -62,6 +93,8 @@ TOOL_ENTRY("memory_delete",
            "Delete a user memory key.",
            "{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}",
            tools_memory_delete_handler)
+// Disabled: personality is fixed to Fidel in SYSTEM_PROMPT
+#if 0
 TOOL_ENTRY("set_persona",
            "Set the assistant persona when the user explicitly asks.",
            "{\"type\":\"object\",\"properties\":{\"persona\":{\"type\":\"string\",\"enum\":[\"neutral\",\"friendly\",\"technical\",\"witty\"]}},\"required\":[\"persona\"]}",
@@ -74,6 +107,7 @@ TOOL_ENTRY("reset_persona",
            "Reset the assistant persona to neutral.",
            "{\"type\":\"object\",\"properties\":{}}",
            tools_reset_persona_handler)
+#endif
 
 // Cron/Scheduler
 TOOL_ENTRY("cron_set",

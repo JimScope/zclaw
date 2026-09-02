@@ -22,4 +22,8 @@ bool ota_is_pending_verify(void);
 // Rollback to previous firmware
 esp_err_t ota_rollback(void);
 
+// Download firmware from an HTTPS URL and write it to the inactive slot.
+// Caller is responsible for http_gate and for restarting afterwards.
+esp_err_t ota_apply_from_url(const char *url);
+
 #endif // OTA_H

@@ -9,6 +9,7 @@
 #include "telegram_poll_policy.h"
 #include "telegram_targets.h"
 #include "telegram_token.h"
+#include "telegram_ota.h"
 #include "telegram_update.h"
 #include "text_buffer.h"
 #include "esp_http_client.h"
@@ -507,6 +508,25 @@ static esp_err_t telegram_poll(void)
 
         cJSON *chat = cJSON_GetObjectItem(message, "chat");
         cJSON *text = cJSON_GetObjectItem(message, "text");
+
+        // Firmware update by document: allowlisted chat sends a .bin file.
+        cJSON *document = cJSON_GetObjectItem(message, "document");
+        if (chat && document) {
+            cJSON *doc_chat_id = cJSON_GetObjectItem(chat, "id");
+            if (doc_chat_id && cJSON_IsNumber(doc_chat_id) &&
+                telegram_targets_has_any() &&
+                telegram_targets_is_authorized((int64_t)doc_chat_id->valuedouble)) {
+                cJSON *file_id = cJSON_GetObjectItem(document, "file_id");
+                cJSON *file_name = cJSON_GetObjectItem(document, "file_name");
+                if (file_id && cJSON_IsString(file_id) &&
+                    file_name && cJSON_IsString(file_name)) {
+                    telegram_ota_handle_document(s_bot_token,
+                                                 file_id->valuestring,
+                                                 file_name->valuestring);
+                }
+            }
+            continue;
+        }
 
         if (chat && text && cJSON_IsString(text)) {
             cJSON *chat_id = cJSON_GetObjectItem(chat, "id");

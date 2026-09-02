@@ -91,6 +91,27 @@ menu "zclaw Configuration"
                 When set (non-empty), this list is used instead of min/max range.
     endmenu
 
+    config ZCLAW_VENDEL_URL
+        string "Vendel SMS gateway send endpoint"
+        default "https://app.vendel.cc/api/sms/send"
+        help
+            POST endpoint of the Vendel SMS gateway used by the sms_send tool.
+
+    config ZCLAW_VENDEL_API_KEY
+        string "Vendel SMS gateway API key"
+        default ""
+        help
+            X-API-Key value for the Vendel SMS gateway. Leave empty to
+            disable the sms_send tool at runtime.
+
+    config ZCLAW_LED_STRIP_GPIO
+        int "Onboard addressable RGB LED (WS2812) GPIO"
+        range 0 48
+        default 8
+        help
+            Data pin of the onboard WS2812/NeoPixel LED used by the
+            led_set/led_blink tools. Most ESP32-C6 devkits use GPIO 8.
+
     menu "Factory Reset"
         config ZCLAW_FACTORY_RESET_PIN
             int "Factory reset button GPIO"

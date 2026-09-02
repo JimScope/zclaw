@@ -2,6 +2,23 @@
 #include "config.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
+#include "esp_crt_bundle.h"
+#include "esp_https_ota.h"
+
+esp_err_t ota_apply_from_url(const char *url)
+{
+    esp_http_client_config_t http_cfg = {
+        .url = url,
+        .timeout_ms = 30000,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+        .keep_alive_enable = true,
+    };
+    esp_https_ota_config_t ota_cfg = {
+        .http_config = &http_cfg,
+    };
+
+    return esp_https_ota(&ota_cfg);
+}
 
 static const char *TAG = "ota";
 static bool s_pending_verify = false;
