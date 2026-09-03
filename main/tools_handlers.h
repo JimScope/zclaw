@@ -28,6 +28,10 @@ bool tools_web_search_handler(const cJSON *input, char *result, size_t result_le
 bool tools_chip_temp_handler(const cJSON *input, char *result, size_t result_len);
 bool tools_led_set_handler(const cJSON *input, char *result, size_t result_len);
 bool tools_led_blink_handler(const cJSON *input, char *result, size_t result_len);
+
+// Onboard LED "thinking" animation (implemented in tools_led.c).
+void led_thinking_start(void);
+void led_thinking_stop(void);
 bool tools_dht_read_handler(const cJSON *input, char *result, size_t result_len);
 
 // Memory

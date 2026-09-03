@@ -278,6 +278,13 @@ static char *build_openai_request(
         goto fail;
     }
 
+    // Mistral-only: pin moderation off explicitly in case the API default
+    // ever flips. Other OpenAI-compatible providers may reject unknown fields.
+    if (strstr(llm_get_api_url(), "mistral.ai") != NULL &&
+        !cJSON_AddBoolToObject(root, "safe_prompt", false)) {
+        goto fail;
+    }
+
     cJSON *messages = cJSON_AddArrayToObject(root, "messages");
     if (!messages) {
         goto fail;

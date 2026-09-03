@@ -32,7 +32,10 @@ bool tools_chip_temp_handler(const cJSON *input, char *result, size_t result_len
         return false;
     }
 
+    // newlib nano printf: no float support - format as integer tenths.
+    int deci = (int)(celsius * 10.0f + (celsius >= 0 ? 0.5f : -0.5f));
     snprintf(result, result_len,
-             "Chip temperature: %.1f C (die runs ~10-20 C above ambient)", celsius);
+             "Chip temperature: %d.%d C (die runs ~10-20 C above ambient)",
+             deci / 10, (deci < 0 ? -deci : deci) % 10);
     return true;
 }

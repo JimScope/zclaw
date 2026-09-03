@@ -453,14 +453,16 @@ static void process_message(const char *user_message, message_source_t source, i
     }
 
     if (agent_is_command(user_message, "status")) {
-        char status_buf[CHANNEL_TX_BUF_SIZE];
-        int64_t up_min = esp_timer_get_time() / 60000000LL;
+        // Static: keeps 1KB off the task stack. NOTE: firmware uses newlib
+        // nano printf (no %lld support) - stick to %lu/%d here.
+        static char status_buf[CHANNEL_TX_BUF_SIZE];
+        unsigned long up_min = (unsigned long)(esp_timer_get_time() / 60000000LL);
         wifi_ap_record_t ap = {0};
         int rssi = (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) ? ap.rssi : 0;
         snprintf(status_buf, sizeof(status_buf),
-                 "Uptime: %lld min\nHeap libre: %lu (min %lu)\nWiFi RSSI: %d dBm\n"
+                 "Uptime: %lu min\nHeap libre: %lu (min %lu)\nWiFi RSSI: %d dBm\n"
                  "Modelo: %s\nFirmware: %s",
-                 (long long)up_min,
+                 up_min,
                  (unsigned long)esp_get_free_heap_size(),
                  (unsigned long)esp_get_minimum_free_heap_size(),
                  rssi, llm_get_model(), ota_get_version());
@@ -526,6 +528,8 @@ static void process_message(const char *user_message, message_source_t source, i
     // Get tools
     int tool_count;
     const tool_def_t *tools = tools_get_all(&tool_count);
+
+    led_thinking_start();
 
     telegram_pause_polling();
     telegram_polling_paused = true;
@@ -804,6 +808,8 @@ static void agent_task(void *arg)
     while (1) {
         if (xQueueReceive(s_input_queue, &msg, portMAX_DELAY) == pdTRUE) {
             process_message(msg.text, msg.source, response_chat_id_for_source(msg.source, msg.chat_id));
+            // Single stop point: covers every exit path of process_message.
+            led_thinking_stop();
         }
     }
 }

@@ -717,15 +717,19 @@ static esp_err_t telegram_flush_pending_updates(void)
 
     int64_t latest_update_id = 0;
     if (telegram_extract_max_update_id(ctx->buf, &latest_update_id)) {
-        s_last_update_id = latest_update_id;
+        // Keep the newest pending update alive: point the poll offset AT it
+        // (not past it) so the normal loop fetches and processes it. Older
+        // backlog is still discarded by Telegram once we poll with offset.
+        s_last_update_id = latest_update_id - 1;
         s_stale_only_poll_streak = 0;
         char update_id_buf[24];
-        if (telegram_format_int64_decimal(s_last_update_id,
+        if (telegram_format_int64_decimal(latest_update_id,
                                           update_id_buf,
                                           sizeof(update_id_buf))) {
-            ESP_LOGI(TAG, "Flushed pending updates up to update_id=%s", update_id_buf);
+            ESP_LOGI(TAG, "Flushed backlog; keeping last update_id=%s for processing",
+                     update_id_buf);
         } else {
-            ESP_LOGI(TAG, "Flushed pending updates");
+            ESP_LOGI(TAG, "Flushed backlog; keeping last pending update");
         }
     } else {
         ESP_LOGI(TAG, "No pending Telegram updates to flush");
