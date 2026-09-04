@@ -224,8 +224,8 @@ bool tools_web_search_handler(const cJSON *input, char *result, size_t result_le
     return true;
 }
 
-// read_web: fetch a page as clean markdown via the free Jina Reader
-// (r.jina.ai) and hand it to the model in ~450-byte pages. The full text is
+// read_web: fetch a page as clean text via the self-hosted reader on the VPS
+// and hand it to the model in ~450-byte pages. The full text is
 // cached statically so paging through a long article costs one download.
 #define READ_WEB_CACHE_MAX 4096
 #define READ_WEB_PAGE_SIZE 450
@@ -255,7 +255,9 @@ bool tools_read_web_handler(const cJSON *input, char *result, size_t result_len)
                    strcmp(s_web_cache_url, url->valuestring) == 0);
     if (!cached) {
         char reader_url[256];
-        snprintf(reader_url, sizeof(reader_url), "https://r.jina.ai/%s", url->valuestring);
+        // Self-hosted trafilatura reader on the VPS.
+        snprintf(reader_url, sizeof(reader_url),
+                 "https://bolita-cubana.duckdns.org/reader/%s", url->valuestring);
 
         if (!http_gate_acquire("read_web", pdMS_TO_TICKS(NET_TOOL_GATE_MS))) {
             snprintf(result, result_len, "Error: HTTP busy, try again");

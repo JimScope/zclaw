@@ -53,7 +53,7 @@ TOOL_ENTRY("web_search",
            "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}",
            tools_web_search_handler)
 TOOL_ENTRY("read_web",
-           "Read a web page as clean text (via Jina Reader). Returns one ~450-char page; pass 'page' (2,3,...) to read more of a long article.",
+           "Read a web page as clean text. Returns one ~450-char page; pass 'page' (2,3,...) to read more of a long article.",
            "{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"},\"page\":{\"type\":\"integer\"}},\"required\":[\"url\"]}",
            tools_read_web_handler)
 TOOL_ENTRY("weather",

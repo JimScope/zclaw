@@ -68,7 +68,7 @@ typedef enum {
 #define HTTP_TIMEOUT_MS         30000   // 30 seconds for API calls
 #define LLM_HTTP_TIMEOUT_MS     20000   // 20 seconds for LLM API calls
 #define LLM_MAX_RETRIES         3       // Max LLM attempts per round (including first attempt)
-#define LLM_FALLBACK_MODEL      "mistral-small-latest"  // Used when API returns 403/429 for the primary model
+#define LLM_FALLBACK_MODEL      "openai/gpt-oss-20b"  // NVIDIA fallback when primary returns 403/429
 #define LLM_RETRY_BASE_MS       2000    // Initial retry delay after a failed LLM call
 #define LLM_RETRY_MAX_MS        10000   // Maximum exponential retry delay
 #define LLM_RETRY_BUDGET_MS     45000   // Max wall-clock retry budget per LLM round
