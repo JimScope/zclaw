@@ -45,13 +45,21 @@ TOOL_ENTRY("sms_send",
            "{\"type\":\"object\",\"properties\":{\"to\":{\"type\":\"string\"},\"message\":{\"type\":\"string\"}},\"required\":[\"to\",\"message\"]}",
            tools_sms_send_handler)
 TOOL_ENTRY("http_get",
-           "HTTP GET a URL and return status plus first 440 bytes of body. Prefer compact JSON APIs.",
+           "HTTP GET a URL: returns status, latency (ms) and first ~420 bytes of body. Use for compact JSON APIs and as an up/down health check (DOWN if it does not respond).",
            "{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"}},\"required\":[\"url\"]}",
            tools_http_get_handler)
 TOOL_ENTRY("web_search",
            "Search the web (DuckDuckGo). Returns a short plain-text summary of results.",
            "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}",
            tools_web_search_handler)
+TOOL_ENTRY("read_web",
+           "Read a web page as clean text (via Jina Reader). Returns one ~450-char page; pass 'page' (2,3,...) to read more of a long article.",
+           "{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"},\"page\":{\"type\":\"integer\"}},\"required\":[\"url\"]}",
+           tools_read_web_handler)
+TOOL_ENTRY("weather",
+           "Get current weather. Uses the saved u_ubicacion memory, or optional lat/lon.",
+           "{\"type\":\"object\",\"properties\":{\"lat\":{\"type\":\"number\"},\"lon\":{\"type\":\"number\"}}}",
+           tools_weather_handler)
 TOOL_ENTRY("chip_temp",
            "Read the chip's internal temperature sensor (Celsius).",
            "{\"type\":\"object\",\"properties\":{}}",

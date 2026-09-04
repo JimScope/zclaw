@@ -2,11 +2,14 @@
 #include "tools_common.h"
 #include "config.h"
 #include "http_gate.h"
+#include "memory.h"
 #include "esp_crt_bundle.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define NET_TOOL_TIMEOUT_MS 15000
@@ -221,6 +224,181 @@ bool tools_web_search_handler(const cJSON *input, char *result, size_t result_le
     return true;
 }
 
+// read_web: fetch a page as clean markdown via the free Jina Reader
+// (r.jina.ai) and hand it to the model in ~450-byte pages. The full text is
+// cached statically so paging through a long article costs one download.
+#define READ_WEB_CACHE_MAX 4096
+#define READ_WEB_PAGE_SIZE 450
+
+static char s_web_cache[READ_WEB_CACHE_MAX];
+static char s_web_cache_url[192];
+static size_t s_web_cache_len;
+
+bool tools_read_web_handler(const cJSON *input, char *result, size_t result_len)
+{
+    const cJSON *url = cJSON_GetObjectItem(input, "url");
+    const cJSON *page_json = cJSON_GetObjectItem(input, "page");
+    int page = (page_json && cJSON_IsNumber(page_json)) ? page_json->valueint : 1;
+    if (page < 1) {
+        page = 1;
+    }
+
+    if (!url || !cJSON_IsString(url) ||
+        (strncmp(url->valuestring, "http://", 7) != 0 &&
+         strncmp(url->valuestring, "https://", 8) != 0)) {
+        snprintf(result, result_len, "Error: 'url' required (http/https)");
+        return false;
+    }
+
+    // Serve from cache when re-reading the same URL (paging); otherwise fetch.
+    bool cached = (s_web_cache_len > 0 &&
+                   strcmp(s_web_cache_url, url->valuestring) == 0);
+    if (!cached) {
+        char reader_url[256];
+        snprintf(reader_url, sizeof(reader_url), "https://r.jina.ai/%s", url->valuestring);
+
+        if (!http_gate_acquire("read_web", pdMS_TO_TICKS(NET_TOOL_GATE_MS))) {
+            snprintf(result, result_len, "Error: HTTP busy, try again");
+            return false;
+        }
+        int status = net_http_request(reader_url, HTTP_METHOD_GET,
+                                      "User-Agent", "Mozilla/5.0 (zclaw-esp32)",
+                                      NULL, s_web_cache, sizeof(s_web_cache));
+        http_gate_release();
+
+        if (status < 0) {
+            s_web_cache_len = 0;
+            snprintf(result, result_len, "Error: reader request failed (network)");
+            return false;
+        }
+        if (status < 200 || status >= 300) {
+            s_web_cache_len = 0;
+            snprintf(result, result_len, "Error: reader HTTP %d", status);
+            return false;
+        }
+        s_web_cache_len = strlen(s_web_cache);
+        strncpy(s_web_cache_url, url->valuestring, sizeof(s_web_cache_url) - 1);
+        s_web_cache_url[sizeof(s_web_cache_url) - 1] = '\0';
+    }
+
+    int total_pages = (int)((s_web_cache_len + READ_WEB_PAGE_SIZE - 1) / READ_WEB_PAGE_SIZE);
+    if (total_pages < 1) {
+        total_pages = 1;
+    }
+    if (page > total_pages) {
+        snprintf(result, result_len, "Fin del contenido (%d paginas en total)", total_pages);
+        return true;
+    }
+
+    size_t start = (size_t)(page - 1) * READ_WEB_PAGE_SIZE;
+    char chunk[READ_WEB_PAGE_SIZE + 1];
+    size_t n = s_web_cache_len - start;
+    if (n > READ_WEB_PAGE_SIZE) {
+        n = READ_WEB_PAGE_SIZE;
+    }
+    memcpy(chunk, s_web_cache + start, n);
+    chunk[n] = '\0';
+
+    if (page < total_pages) {
+        snprintf(result, result_len, "[pag %d/%d, pide page=%d para seguir]\n%s",
+                 page, total_pages, page + 1, chunk);
+    } else {
+        snprintf(result, result_len, "[pag %d/%d, fin]\n%s", page, total_pages, chunk);
+    }
+    return true;
+}
+
+// Maps Open-Meteo WMO weather codes to short Spanish descriptions.
+static const char *wmo_desc(int code)
+{
+    if (code == 0) return "despejado";
+    if (code <= 2) return "parcialmente nublado";
+    if (code == 3) return "nublado";
+    if (code <= 48) return "niebla";
+    if (code <= 57) return "llovizna";
+    if (code <= 67) return "lluvia";
+    if (code <= 77) return "nieve";
+    if (code <= 82) return "chubascos";
+    if (code <= 99) return "tormenta";
+    return "desconocido";
+}
+
+// Pulls a float that follows a marker in strings like "lat20.02lon-75.83".
+static bool parse_after(const char *s, const char *marker, float *out)
+{
+    const char *p = strstr(s, marker);
+    if (!p) {
+        return false;
+    }
+    *out = strtof(p + strlen(marker), NULL);
+    return true;
+}
+
+bool tools_weather_handler(const cJSON *input, char *result, size_t result_len)
+{
+    float lat = 0, lon = 0;
+    const cJSON *jlat = cJSON_GetObjectItem(input, "lat");
+    const cJSON *jlon = cJSON_GetObjectItem(input, "lon");
+
+    if (jlat && cJSON_IsNumber(jlat) && jlon && cJSON_IsNumber(jlon)) {
+        lat = (float)jlat->valuedouble;
+        lon = (float)jlon->valuedouble;
+    } else {
+        // Fall back to the saved location memory (e.g. "lat20.02lon-75.83").
+        char loc[64] = {0};
+        if (!memory_get("u_ubicacion", loc, sizeof(loc)) ||
+            !parse_after(loc, "lat", &lat) || !parse_after(loc, "lon", &lon)) {
+            snprintf(result, result_len,
+                     "Error: sin ubicacion. Guarda u_ubicacion (ej lat20.02lon-75.83) "
+                     "o pasa lat/lon.");
+            return false;
+        }
+    }
+
+    char url[224];
+    snprintf(url, sizeof(url),
+             "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f"
+             "&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m",
+             lat, lon);
+
+    if (!http_gate_acquire("weather", pdMS_TO_TICKS(NET_TOOL_GATE_MS))) {
+        snprintf(result, result_len, "Error: HTTP busy, try again");
+        return false;
+    }
+    char resp[NET_TOOL_BODY_MAX];
+    int status = net_http_request(url, HTTP_METHOD_GET, NULL, NULL, NULL,
+                                  resp, sizeof(resp));
+    http_gate_release();
+
+    if (status < 0) {
+        snprintf(result, result_len, "Error: no pude consultar el clima (red)");
+        return false;
+    }
+    if (status != 200) {
+        snprintf(result, result_len, "Error: clima HTTP %d", status);
+        return false;
+    }
+
+    // Minimal parse of the flat "current" object from Open-Meteo.
+    cJSON *root = cJSON_Parse(resp);
+    cJSON *cur = root ? cJSON_GetObjectItem(root, "current") : NULL;
+    if (!cur) {
+        if (root) cJSON_Delete(root);
+        snprintf(result, result_len, "Error: respuesta de clima invalida");
+        return false;
+    }
+    double temp = cJSON_GetNumberValue(cJSON_GetObjectItem(cur, "temperature_2m"));
+    double hum = cJSON_GetNumberValue(cJSON_GetObjectItem(cur, "relative_humidity_2m"));
+    double wind = cJSON_GetNumberValue(cJSON_GetObjectItem(cur, "wind_speed_10m"));
+    int code = (int)cJSON_GetNumberValue(cJSON_GetObjectItem(cur, "weather_code"));
+    cJSON_Delete(root);
+
+    snprintf(result, result_len,
+             "Clima ahora: %.1f C, %s, humedad %.0f%%, viento %.0f km/h",
+             temp, wmo_desc(code), hum, wind);
+    return true;
+}
+
 bool tools_http_get_handler(const cJSON *input, char *result, size_t result_len)
 {
     const cJSON *url = cJSON_GetObjectItem(input, "url");
@@ -238,16 +416,18 @@ bool tools_http_get_handler(const cJSON *input, char *result, size_t result_len)
     }
 
     char resp[NET_TOOL_BODY_MAX];
+    int64_t t0 = esp_timer_get_time();
     int status = net_http_request(url->valuestring, HTTP_METHOD_GET,
                                   NULL, NULL, NULL, resp, sizeof(resp));
+    int ms = (int)((esp_timer_get_time() - t0) / 1000);
     http_gate_release();
 
     if (status < 0) {
-        snprintf(result, result_len, "Error: request failed (network)");
+        snprintf(result, result_len, "DOWN: no responde en %d ms (sin conexion o timeout)", ms);
         return false;
     }
 
-    // Fit status + truncated body into the tool result buffer.
-    snprintf(result, result_len, "HTTP %d: %.440s", status, resp);
+    // Latency up front so it doubles as an uptime/health check.
+    snprintf(result, result_len, "HTTP %d en %d ms: %.420s", status, ms, resp);
     return status >= 200 && status < 300;
 }

@@ -97,6 +97,8 @@ typedef enum {
     "(led_blink does N blinks in one call); gpio_write cannot drive it. " \
     "When asked for multiple GPIO states, prefer one gpio_read_all call. " \
     "When asked what is saved or set on the device, verify with tools. " \
+    "When asked about a website or URL, ALWAYS use read_web to fetch it and " \
+    "answer from the real content - never guess a site's purpose from its name. " \
     "When a custom tool returns an action, carry it out with built-in tools."
 
 // -----------------------------------------------------------------------------
@@ -187,7 +189,7 @@ typedef enum {
 // -----------------------------------------------------------------------------
 #define NTP_SERVER              "pool.ntp.org"
 #define NTP_SYNC_TIMEOUT_MS     10000
-#define DEFAULT_TIMEZONE_POSIX  "UTC0"
+#define DEFAULT_TIMEZONE_POSIX  "CST5CDT,M3.2.0/0,M11.1.0/1"  // Cuba (America/Havana)
 #define TIMEZONE_MAX_LEN        64
 
 // -----------------------------------------------------------------------------
