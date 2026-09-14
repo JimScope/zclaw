@@ -204,6 +204,18 @@ void app_main(void)
     bool device_configured = device_is_configured();
     local_admin_set_device_configured(device_configured);
 
+    // A high boot count on a *configured* device almost always means WiFi could
+    // not connect (router down, MAC filter, moved AP) and the firmware rebooted
+    // in a loop. That is not a real crash loop, so recover instead of trapping
+    // the device in safe mode: clear the counter and continue. WiFi is now
+    // non-fatal (retried in the background below), so this cannot recur.
+    if (s_safe_mode && device_configured) {
+        ESP_LOGW(TAG, "Recovering from safe mode: firmware boots fine, likely a WiFi outage. Continuing.");
+        boot_guard_set_persisted_count(0);
+        s_safe_mode = false;
+        local_admin_set_safe_mode(false);
+    }
+
     // 5. Initialize LLM client for local serial commands
     ESP_ERROR_CHECK(llm_init());
 
@@ -276,11 +288,17 @@ void app_main(void)
         }
     }
 
-    // 10. Connect to WiFi
-    if (!local_admin_wifi_connect_from_store()) {
-        ESP_LOGE(TAG, "WiFi failed, restarting...");
-        vTaskDelay(pdMS_TO_TICKS(3000));
-        esp_restart();
+    // 10. Connect to WiFi — retry forever WITHOUT rebooting. A WiFi/router/MAC
+    // outage must never reboot-loop the device into safe mode. Each call already
+    // does WIFI_MAX_RETRY attempts on the primary net plus the fallback net;
+    // if all fail we wait and try again. Press RST for a manual reboot; the
+    // runtime reconnect handler covers drops that happen after this point.
+    int wifi_attempt = 0;
+    while (!local_admin_wifi_connect_from_store()) {
+        wifi_attempt++;
+        ESP_LOGW(TAG, "WiFi connect failed (attempt %d). Retrying in 30s (press RST to reboot).",
+                 wifi_attempt);
+        vTaskDelay(pdMS_TO_TICKS(30000));
     }
 
     // 11. Start task to clear boot counter after stable period
