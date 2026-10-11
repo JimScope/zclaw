@@ -45,3 +45,7 @@ __pycache__/
 *~
 *.swp
 *.swo
+
+# Face source photos (AI-edited portraits) stay local; only the tool is versioned
+/assets/face/*
+!/assets/face/README.md

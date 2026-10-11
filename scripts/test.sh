@@ -168,7 +168,8 @@ run_host_tests() {
         test_qemu_live_llm_bridge.py \
         test_web_relay.py \
         test_install_provision_scripts.py \
-        test_api_provider_harness.py
+        test_api_provider_harness.py \
+        test_face_assets.py
     echo ""
 }
 
