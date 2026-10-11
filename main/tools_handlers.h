@@ -28,6 +28,7 @@ bool tools_web_search_handler(const cJSON *input, char *result, size_t result_le
 bool tools_read_web_handler(const cJSON *input, char *result, size_t result_len);
 bool tools_weather_handler(const cJSON *input, char *result, size_t result_len);
 bool tools_chip_temp_handler(const cJSON *input, char *result, size_t result_len);
+bool tools_chip_temp_read(float *celsius);
 bool tools_led_set_handler(const cJSON *input, char *result, size_t result_len);
 bool tools_led_blink_handler(const cJSON *input, char *result, size_t result_len);
 

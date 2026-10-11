@@ -64,3 +64,6 @@ CONFIG_ZCLAW_GPIO_MAX_PIN=10
 # FAT long file names (face frames such as eyes_closed.r565)
 CONFIG_FATFS_LFN_HEAP=y
 CONFIG_FATFS_MAX_LFN=255
+# FatFs sizes its buffers by the largest sector it may meet. We have no wear-levelled
+# flash FAT, only SD cards (512-byte sectors); the 4096 default costs ~4 KB per open file.
+CONFIG_WL_SECTOR_SIZE_512=y

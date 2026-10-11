@@ -165,10 +165,10 @@ esp_err_t display_hw_init(void)
     }
 
     s_ready = true;
-    for (int y = 0; y < DISPLAY_H; y += 16) {
+    for (int y = 0; y < DISPLAY_H; y += DISPLAY_STRIP_ROWS) {
         uint16_t *buf = display_hw_acquire_buffer();
         memset(buf, 0, DISPLAY_STRIP_PIXELS * sizeof(uint16_t));
-        display_hw_blit(0, y, DISPLAY_W, 16, buf);
+        display_hw_blit(0, y, DISPLAY_W, DISPLAY_STRIP_ROWS, buf);
     }
     display_hw_wait_idle();
     display_hw_set_brightness(CONFIG_ZCLAW_DISPLAY_BRIGHTNESS);

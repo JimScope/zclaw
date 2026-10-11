@@ -1,4 +1,5 @@
 #include "tools_handlers.h"
+#include "weather.h"
 #include "tools_common.h"
 #include "config.h"
 #include "http_gate.h"
@@ -336,21 +337,15 @@ static bool parse_after(const char *s, const char *marker, float *out)
     return true;
 }
 
-bool tools_weather_handler(const cJSON *input, char *result, size_t result_len)
+bool weather_fetch_current(bool has_coords, float lat, float lon, TickType_t gate_wait,
+                           weather_current_t *out, char *err, size_t err_len)
 {
-    float lat = 0, lon = 0;
-    const cJSON *jlat = cJSON_GetObjectItem(input, "lat");
-    const cJSON *jlon = cJSON_GetObjectItem(input, "lon");
-
-    if (jlat && cJSON_IsNumber(jlat) && jlon && cJSON_IsNumber(jlon)) {
-        lat = (float)jlat->valuedouble;
-        lon = (float)jlon->valuedouble;
-    } else {
+    if (!has_coords) {
         // Fall back to the saved location memory (e.g. "lat20.02lon-75.83").
         char loc[64] = {0};
         if (!memory_get("u_ubicacion", loc, sizeof(loc)) ||
             !parse_after(loc, "lat", &lat) || !parse_after(loc, "lon", &lon)) {
-            snprintf(result, result_len,
+            snprintf(err, err_len,
                      "Error: sin ubicacion. Guarda u_ubicacion (ej lat20.02lon-75.83) "
                      "o pasa lat/lon.");
             return false;
@@ -363,8 +358,8 @@ bool tools_weather_handler(const cJSON *input, char *result, size_t result_len)
              "&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m",
              lat, lon);
 
-    if (!http_gate_acquire("weather", pdMS_TO_TICKS(NET_TOOL_GATE_MS))) {
-        snprintf(result, result_len, "Error: HTTP busy, try again");
+    if (!http_gate_acquire("weather", gate_wait)) {
+        snprintf(err, err_len, "Error: HTTP busy, try again");
         return false;
     }
     char resp[NET_TOOL_BODY_MAX];
@@ -373,11 +368,11 @@ bool tools_weather_handler(const cJSON *input, char *result, size_t result_len)
     http_gate_release();
 
     if (status < 0) {
-        snprintf(result, result_len, "Error: no pude consultar el clima (red)");
+        snprintf(err, err_len, "Error: no pude consultar el clima (red)");
         return false;
     }
     if (status != 200) {
-        snprintf(result, result_len, "Error: clima HTTP %d", status);
+        snprintf(err, err_len, "Error: clima HTTP %d", status);
         return false;
     }
 
@@ -386,18 +381,39 @@ bool tools_weather_handler(const cJSON *input, char *result, size_t result_len)
     cJSON *cur = root ? cJSON_GetObjectItem(root, "current") : NULL;
     if (!cur) {
         if (root) cJSON_Delete(root);
-        snprintf(result, result_len, "Error: respuesta de clima invalida");
+        snprintf(err, err_len, "Error: respuesta de clima invalida");
         return false;
     }
-    double temp = cJSON_GetNumberValue(cJSON_GetObjectItem(cur, "temperature_2m"));
-    double hum = cJSON_GetNumberValue(cJSON_GetObjectItem(cur, "relative_humidity_2m"));
-    double wind = cJSON_GetNumberValue(cJSON_GetObjectItem(cur, "wind_speed_10m"));
-    int code = (int)cJSON_GetNumberValue(cJSON_GetObjectItem(cur, "weather_code"));
+    out->temp_c = (float)cJSON_GetNumberValue(cJSON_GetObjectItem(cur, "temperature_2m"));
+    out->humidity = (float)cJSON_GetNumberValue(cJSON_GetObjectItem(cur, "relative_humidity_2m"));
+    out->wind_kmh = (float)cJSON_GetNumberValue(cJSON_GetObjectItem(cur, "wind_speed_10m"));
+    out->code = (int)cJSON_GetNumberValue(cJSON_GetObjectItem(cur, "weather_code"));
     cJSON_Delete(root);
+    return true;
+}
+
+const char *weather_code_desc(int code)
+{
+    return wmo_desc(code);
+}
+
+bool tools_weather_handler(const cJSON *input, char *result, size_t result_len)
+{
+    const cJSON *jlat = cJSON_GetObjectItem(input, "lat");
+    const cJSON *jlon = cJSON_GetObjectItem(input, "lon");
+    bool has_coords = jlat && cJSON_IsNumber(jlat) && jlon && cJSON_IsNumber(jlon);
+    weather_current_t w;
+
+    if (!weather_fetch_current(has_coords,
+                               has_coords ? (float)jlat->valuedouble : 0.0f,
+                               has_coords ? (float)jlon->valuedouble : 0.0f,
+                               pdMS_TO_TICKS(NET_TOOL_GATE_MS), &w, result, result_len)) {
+        return false;
+    }
 
     snprintf(result, result_len,
              "Clima ahora: %.1f C, %s, humedad %.0f%%, viento %.0f km/h",
-             temp, wmo_desc(code), hum, wind);
+             w.temp_c, wmo_desc(w.code), w.humidity, w.wind_kmh);
     return true;
 }
 

@@ -6,6 +6,8 @@
 #include "esp_log.h"
 #include "ota.h"
 #include "sd_card.h"
+#include "display_status.h"
+#include "tools_handlers.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -22,6 +24,8 @@ esp_err_t display_start(void)
         ESP_LOGW(TAG, "Display disabled: %s", esp_err_to_name(err));
         return err;
     }
+    float warm = 0;
+    (void)tools_chip_temp_read(&warm);  // install the sensor once
     // Bring-up self-test (replaced by the display task in Task 12).
     gfx_fill_rect(0, 0, DISPLAY_W, 40, GFX_RGB(255, 0, 0));
     gfx_fill_rect(0, 40, DISPLAY_W, 40, GFX_RGB(0, 255, 0));
@@ -46,6 +50,9 @@ esp_err_t display_start(void)
             ESP_LOGW(TAG, "%s not found", path);
         }
     }
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    display_status_draw(false);
+    display_hw_wait_idle();
     return ESP_OK;
 #else
     (void)TAG;

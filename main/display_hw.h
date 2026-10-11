@@ -8,7 +8,9 @@
 
 #define DISPLAY_W 240
 #define DISPLAY_H 240
-#define DISPLAY_STRIP_PIXELS (DISPLAY_W * 16)
+// 8-row strips: two DMA buffers of 3.75 KB (16 rows cost 7.5 KB more heap for ~1 ms/frame).
+#define DISPLAY_STRIP_ROWS   8
+#define DISPLAY_STRIP_PIXELS (DISPLAY_W * DISPLAY_STRIP_ROWS)
 
 esp_err_t display_hw_init(void);
 bool display_hw_ready(void);
