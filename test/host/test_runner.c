@@ -27,6 +27,7 @@ extern int test_llm_auth_all(void);
 extern int test_wifi_credentials_all(void);
 extern int test_text_latin1_all(void);
 extern int test_frame_format_all(void);
+extern int test_face_state_all(void);
 
 int main(int argc, char *argv[])
 {
@@ -57,6 +58,7 @@ int main(int argc, char *argv[])
     failures += test_wifi_credentials_all();
     failures += test_text_latin1_all();
     failures += test_frame_format_all();
+    failures += test_face_state_all();
 
     printf("\n===================\n");
     if (failures == 0) {
