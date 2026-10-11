@@ -80,6 +80,7 @@ run_host_tests() {
         mock_user_tools.c \
         mock_freertos.c \
         mock_tools.c \
+        mock_display.c \
         mock_system_diag_deps.c \
         mock_ratelimit.c \
         mock_i2c.c \

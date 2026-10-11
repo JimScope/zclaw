@@ -8,7 +8,7 @@ bool gpio_policy_pin_is_allowed(int pin);
 bool gpio_policy_pin_forbidden_hint(int pin, char *result, size_t result_len);
 bool gpio_policy_runtime_input_pin_is_safe(int pin);
 
-#define GPIO_POLICY_MAX_RESERVED 8
+#define GPIO_POLICY_MAX_RESERVED 12
 
 // Pins owned by enabled peripherals (display / SD SPI bus). Returns the count copied.
 size_t gpio_policy_reserved_pins(int *out, size_t max);

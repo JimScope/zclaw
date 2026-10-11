@@ -1,6 +1,12 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+// The #ifdef CONFIG_* checks below need sdkconfig.h even when this header is
+// included before any ESP-IDF header (e.g. gpio_policy.c).
+#ifndef TEST_BUILD
+#include "sdkconfig.h"
+#endif
+
 // -----------------------------------------------------------------------------
 // Buffer Sizes
 // -----------------------------------------------------------------------------

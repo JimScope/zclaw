@@ -294,6 +294,19 @@ TEST(board_reserved_csv_blocks_pins_with_board_hint)
     return 0;
 }
 
+TEST(reserved_list_holds_display_sd_and_board_pins)
+{
+    /* Fidel's board: GPIO3 + display (6,5,7,1,0,10) + SD (2,18) = 9 pins. */
+    static const int reserved[] = {3, 6, 5, 7, 1, 0, 10, 2, 18};
+    int out[GPIO_POLICY_MAX_RESERVED];
+
+    gpio_policy_test_set_reserved(reserved, sizeof(reserved) / sizeof(reserved[0]));
+    ASSERT(gpio_policy_reserved_pins(out, GPIO_POLICY_MAX_RESERVED) == 9);
+    ASSERT(!gpio_policy_runtime_input_pin_is_safe(18));
+    gpio_policy_test_set_reserved(NULL, 0);
+    return 0;
+}
+
 int test_tools_gpio_policy_all(void)
 {
     int failures = 0;
@@ -386,6 +399,13 @@ int test_tools_gpio_policy_all(void)
 
     printf("  board_reserved_csv_blocks_pins_with_board_hint... ");
     if (test_board_reserved_csv_blocks_pins_with_board_hint() == 0) {
+        printf("OK\n");
+    } else {
+        failures++;
+    }
+
+    printf("  reserved_list_holds_display_sd_and_board_pins... ");
+    if (test_reserved_list_holds_display_sd_and_board_pins() == 0) {
         printf("OK\n");
     } else {
         failures++;

@@ -50,6 +50,7 @@ idf_component_register(
         "display.c"
         "sd_card.c"
         "display_status.c"
+        "display_face.c"
         "text_latin1.c"
         "font8x16.c"
         "frame_format.c"

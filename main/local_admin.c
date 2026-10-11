@@ -1,4 +1,5 @@
 #include "local_admin.h"
+#include "display.h"
 
 #include "agent_commands.h"
 #include "boot_guard.h"
@@ -152,6 +153,7 @@ static void local_admin_wifi_event_handler(void *arg,
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         wifi_event_sta_disconnected_t *event = (wifi_event_sta_disconnected_t *)event_data;
         s_wifi_connected = false;
+        display_notify_wifi(false);
         s_current_ip[0] = '\0';
         s_last_disconnect_reason = event ? event->reason : 0;
         ESP_LOGW(TAG, "WiFi disconnected: reason=%u (%s)",
@@ -193,6 +195,7 @@ static void local_admin_wifi_event_handler(void *arg,
     if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
         s_wifi_connected = true;
+        display_notify_wifi(true);
         s_wifi_connect_in_progress = false;
         s_wifi_retry_num = 0;
         s_runtime_retry = 0;

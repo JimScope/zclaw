@@ -12,6 +12,7 @@
 #include "memory.h"
 #include "nvs_keys.h"
 #include "telegram.h"
+#include "display.h"
 #include "cJSON.h"
 #include "esp_timer.h"
 #include "esp_log.h"
@@ -178,6 +179,7 @@ static void queue_telegram_response(const char *text, int64_t chat_id)
 
 static void send_response(const char *text, int64_t chat_id)
 {
+    display_notify_talking(text ? strlen(text) : 0);
     queue_channel_response(text);
     queue_telegram_response(text, chat_id);
 }
@@ -530,6 +532,7 @@ static void process_message(const char *user_message, message_source_t source, i
     const tool_def_t *tools = tools_get_all(&tool_count);
 
     led_thinking_start();
+    display_notify_thinking(true);
 
     telegram_pause_polling();
     telegram_polling_paused = true;
@@ -810,6 +813,7 @@ static void agent_task(void *arg)
             process_message(msg.text, msg.source, response_chat_id_for_source(msg.source, msg.chat_id));
             // Single stop point: covers every exit path of process_message.
             led_thinking_stop();
+            display_notify_thinking(false);
         }
     }
 }
