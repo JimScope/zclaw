@@ -58,7 +58,7 @@ static void append_reserved_pins(char *buf, size_t buf_len)
         used += (size_t)snprintf(buf + used, buf_len - used, "%s %d", i == 0 ? "" : ",", pins[i]);
     }
     if (used < buf_len) {
-        snprintf(buf + used, buf_len - used, " are reserved for the display/SD bus.");
+        snprintf(buf + used, buf_len - used, " are reserved (board wiring or display/SD bus).");
     }
 }
 

@@ -274,6 +274,26 @@ TEST(reserved_list_deduplicates_shared_pins)
     return 0;
 }
 
+TEST(board_reserved_csv_blocks_pins_with_board_hint)
+{
+    char err[160];
+
+    gpio_policy_test_load_board_reserved("3, 14");
+    ASSERT(!gpio_policy_pin_is_allowed(3));
+    ASSERT(!gpio_policy_runtime_input_pin_is_safe(14));
+    ASSERT(gpio_policy_pin_is_allowed(4));
+    ASSERT(gpio_policy_pin_is_board_reserved(3));
+    ASSERT(!gpio_policy_pin_is_board_reserved(4));
+    ASSERT(gpio_policy_pin_forbidden_hint(3, err, sizeof(err)));
+    ASSERT_STR_CONTAINS(err, "reserved by the board");
+
+    gpio_policy_test_load_board_reserved("");
+    ASSERT(gpio_policy_pin_is_allowed(3));
+    ASSERT(!gpio_policy_pin_is_board_reserved(3));
+    gpio_policy_test_set_reserved(NULL, 0);
+    return 0;
+}
+
 int test_tools_gpio_policy_all(void)
 {
     int failures = 0;
@@ -359,6 +379,13 @@ int test_tools_gpio_policy_all(void)
 
     printf("  reserved_list_deduplicates_shared_pins... ");
     if (test_reserved_list_deduplicates_shared_pins() == 0) {
+        printf("OK\n");
+    } else {
+        failures++;
+    }
+
+    printf("  board_reserved_csv_blocks_pins_with_board_hint... ");
+    if (test_board_reserved_csv_blocks_pins_with_board_hint() == 0) {
         printf("OK\n");
     } else {
         failures++;

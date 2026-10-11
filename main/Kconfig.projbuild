@@ -89,6 +89,16 @@ menu "zclaw Configuration"
                 Optional comma-separated allowlist for gpio_write/gpio_read.
                 Example: "1,2,3,4,5,6,7,8,9,43,44"
                 When set (non-empty), this list is used instead of min/max range.
+
+        config ZCLAW_BOARD_RESERVED_GPIOS
+            string "GPIOs reserved by the board (comma-separated)"
+            default "3" if IDF_TARGET_ESP32C6
+            default ""
+            help
+                Pins the board itself uses. On some ESP32-C6 boards GPIO3
+                powers the RF switch: driving it high disconnects the antenna
+                and WiFi sees no networks. GPIO tools refuse these pins and the
+                display/SD bus refuses to start on them.
     endmenu
 
     config ZCLAW_WIFI_FALLBACK_SSID
@@ -216,7 +226,7 @@ menu "zclaw Configuration"
         config ZCLAW_SD_CS_GPIO
             int "SD card CS GPIO"
             range 0 48
-            default 3
+            default 18
             depends on ZCLAW_SD_ENABLE
     endmenu
 

@@ -44,6 +44,16 @@ idf_component_register(
         "boot_guard.c"
         "user_tools.c"
         "wifi_credentials.c"
+        "board_spi.c"
+        "display_hw.c"
+        "display_gfx.c"
+        "display.c"
+        "text_latin1.c"
+        "font8x16.c"
+        "frame_format.c"
+        "face_state.c"
+        "page_rotation.c"
+        "status_format.c"
     INCLUDE_DIRS "."
     REQUIRES
         nvs_flash
@@ -58,6 +68,9 @@ idf_component_register(
         esp_driver_usb_serial_jtag
         esp_driver_tsens
         app_update
+        esp_lcd
+        esp_driver_spi
+        esp_driver_ledc
         esp_https_ota
 )
 

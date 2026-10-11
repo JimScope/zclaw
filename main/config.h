@@ -122,6 +122,12 @@ typedef enum {
 #define GPIO_ALLOWED_PINS_CSV   ""
 #endif
 
+#ifdef CONFIG_ZCLAW_BOARD_RESERVED_GPIOS
+#define GPIO_BOARD_RESERVED_CSV CONFIG_ZCLAW_BOARD_RESERVED_GPIOS
+#else
+#define GPIO_BOARD_RESERVED_CSV ""
+#endif
+
 #if GPIO_MIN_PIN > GPIO_MAX_PIN
 #error "GPIO_MIN_PIN must be <= GPIO_MAX_PIN"
 #endif

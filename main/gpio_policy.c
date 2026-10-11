@@ -67,12 +67,37 @@ static void reserved_add(int pin)
     }
 }
 
-static void reserved_load_from_config(void)
+static int s_board_reserved[GPIO_POLICY_MAX_RESERVED];
+static size_t s_board_count;
+
+// Parse "3, 14" style lists; non-numeric separators are skipped.
+static void board_reserved_parse(const char *csv)
+{
+    const char *p = csv;
+
+    s_board_count = 0;
+    while (p && *p && s_board_count < GPIO_POLICY_MAX_RESERVED) {
+        char *end = NULL;
+        long value = strtol(p, &end, 10);
+        if (end == p) {
+            p++;
+            continue;
+        }
+        if (value >= 0 && value <= 64) {
+            s_board_reserved[s_board_count++] = (int)value;
+        }
+        p = end;
+    }
+}
+
+// Board pins first (they win the hint), then the pins of enabled peripherals.
+static void reserved_rebuild(const char *board_csv)
 {
     s_reserved_count = 0;
-#if !(CONFIG_ZCLAW_DISPLAY_ENABLE || CONFIG_ZCLAW_SD_ENABLE)
-    (void)reserved_add;  // only the TEST_BUILD hook adds pins in this configuration
-#endif
+    board_reserved_parse(board_csv);
+    for (size_t i = 0; i < s_board_count; i++) {
+        reserved_add(s_board_reserved[i]);
+    }
 #if CONFIG_ZCLAW_DISPLAY_ENABLE || CONFIG_ZCLAW_SD_ENABLE
     reserved_add(CONFIG_ZCLAW_SPI_SCLK_GPIO);
     reserved_add(CONFIG_ZCLAW_SPI_MOSI_GPIO);
@@ -90,6 +115,11 @@ static void reserved_load_from_config(void)
     s_reserved_ready = true;
 }
 
+static void reserved_load_from_config(void)
+{
+    reserved_rebuild(GPIO_BOARD_RESERVED_CSV);
+}
+
 static bool pin_is_reserved(int pin)
 {
     if (!s_reserved_ready) {
@@ -97,6 +127,19 @@ static bool pin_is_reserved(int pin)
     }
     for (size_t i = 0; i < s_reserved_count; i++) {
         if (s_reserved[i] == pin) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool gpio_policy_pin_is_board_reserved(int pin)
+{
+    if (!s_reserved_ready) {
+        reserved_load_from_config();
+    }
+    for (size_t i = 0; i < s_board_count; i++) {
+        if (s_board_reserved[i] == pin) {
             return true;
         }
     }
@@ -175,6 +218,12 @@ bool gpio_policy_runtime_input_pin_is_safe(int pin)
 
 bool gpio_policy_pin_forbidden_hint(int pin, char *result, size_t result_len)
 {
+    if (pin >= 0 && gpio_policy_pin_is_board_reserved(pin)) {
+        snprintf(result, result_len,
+                 "Error: pin %d is reserved by the board (e.g. RF switch); choose a different pin",
+                 pin);
+        return true;
+    }
     if (pin >= 0 && pin_is_reserved(pin)) {
         snprintf(result, result_len,
                  "Error: pin %d is reserved for the display/SD SPI bus; choose a different pin",
@@ -217,9 +266,15 @@ void gpio_policy_test_set_reserved(const int *pins, size_t count)
         return;
     }
     s_reserved_count = 0;
+    s_board_count = 0;
     for (size_t i = 0; i < count; i++) {
         reserved_add(pins[i]);
     }
     s_reserved_ready = true;
+}
+
+void gpio_policy_test_load_board_reserved(const char *csv)
+{
+    reserved_rebuild(csv);
 }
 #endif

@@ -13,9 +13,14 @@ bool gpio_policy_runtime_input_pin_is_safe(int pin);
 // Pins owned by enabled peripherals (display / SD SPI bus). Returns the count copied.
 size_t gpio_policy_reserved_pins(int *out, size_t max);
 
+// Pins the board itself uses (CONFIG_ZCLAW_BOARD_RESERVED_GPIOS), e.g. an RF switch.
+bool gpio_policy_pin_is_board_reserved(int pin);
+
 #ifdef TEST_BUILD
 // Override the reserved list; count == 0 restores the Kconfig-derived list.
 void gpio_policy_test_set_reserved(const int *pins, size_t count);
+// Rebuild the reserved list with the given board CSV (plus enabled peripherals).
+void gpio_policy_test_load_board_reserved(const char *csv);
 bool gpio_policy_test_pin_is_allowed(int pin,
                                      const char *csv,
                                      int min_pin,

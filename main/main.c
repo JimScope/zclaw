@@ -10,6 +10,7 @@
 #include "ota.h"
 #include "http_gate.h"
 #include "boot_guard.h"
+#include "display.h"
 #include "local_admin.h"
 #include "nvs_keys.h"
 #include "messages.h"
@@ -235,6 +236,12 @@ void app_main(void)
     // 8. Register tools and local channel early so /gpio and /diag work before WiFi.
     tools_init();
     channel_init();
+
+    // 8b. Optional display + SD card. Never fatal.
+    esp_err_t display_err = display_start();
+    if (display_err != ESP_OK && display_err != ESP_ERR_NOT_SUPPORTED) {
+        ESP_LOGW(TAG, "Display unavailable: %s", esp_err_to_name(display_err));
+    }
 
     QueueHandle_t input_queue = xQueueCreate(INPUT_QUEUE_LENGTH, sizeof(channel_msg_t));
     QueueHandle_t channel_output_queue = xQueueCreate(OUTPUT_QUEUE_LENGTH, sizeof(channel_output_msg_t));
