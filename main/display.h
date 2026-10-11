@@ -25,4 +25,8 @@ bool display_request_status(uint32_t duration_ms);
 // False when the display is disabled or not running.
 bool display_request_dashboard(const char *name, uint32_t duration_ms);
 
+// Show an already downloaded 240x240 JPEG for duration_ms. On success the
+// display owns jpeg (it frees it); on false the caller still owns it.
+bool display_show_jpeg(uint8_t *jpeg, size_t len, uint32_t duration_ms);
+
 #endif // DISPLAY_API_H

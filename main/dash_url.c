@@ -52,3 +52,39 @@ bool dash_url_build(char *buf, size_t len, const char *base, const char *name,
     }
     return written > 0 && (size_t)written < len;
 }
+
+bool dash_url_build_param(char *buf, size_t len, const char *base, const char *name,
+                          const char *key, const char *value)
+{
+    static const char hex[] = "0123456789ABCDEF";
+    size_t used;
+    int written;
+
+    if (!buf || len == 0 || !base || !name_is_valid(name) || !name_is_valid(key) ||
+        !value || !*value) {
+        return false;
+    }
+    written = snprintf(buf, len, "%s/%s.jpg?%s=", base, name, key);
+    if (written <= 0 || (size_t)written >= len) {
+        return false;
+    }
+    used = (size_t)written;
+
+    for (const unsigned char *p = (const unsigned char *)value; *p; p++) {
+        bool plain = (*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') ||
+                     (*p >= '0' && *p <= '9') || *p == '-' || *p == '_' || *p == '.' || *p == '~';
+        size_t need = plain ? 1 : 3;
+        if (used + need >= len) {
+            return false;
+        }
+        if (plain) {
+            buf[used++] = (char)*p;
+        } else {
+            buf[used++] = '%';
+            buf[used++] = hex[*p >> 4];
+            buf[used++] = hex[*p & 0x0F];
+        }
+    }
+    buf[used] = '\0';
+    return true;
+}

@@ -17,6 +17,7 @@ typedef struct {
     uint32_t status_ms;
     page_t requested;         // page shown on demand
     int64_t requested_until_ms;  // 0 = nothing requested
+    bool prev_forced;            // to detect the start of a new activity
 } page_rotation_t;
 
 void page_rotation_init(page_rotation_t *r, uint32_t face_ms, uint32_t status_ms, int64_t now_ms);
@@ -26,7 +27,8 @@ void page_rotation_init(page_rotation_t *r, uint32_t face_ms, uint32_t status_ms
 page_t page_rotation_update(page_rotation_t *r, bool face_forced, int64_t now_ms);
 
 // Show `page` for duration_ms (/panel, /clima, /cripto). A new request replaces
-// the previous one; activity (thinking/talking) cancels it.
+// the previous one. Only an activity that starts after the request cancels
+// it, so a page requested during Fidel's turn survives that turn's reply.
 void page_rotation_show(page_rotation_t *r, page_t page, uint32_t duration_ms, int64_t now_ms);
 
 #endif // PAGE_ROTATION_H

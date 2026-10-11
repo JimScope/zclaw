@@ -97,6 +97,20 @@ TEST(remote_page_can_replace_requested_status)
     return 0;
 }
 
+TEST(request_made_during_activity_survives_that_activity)
+{
+    page_rotation_t r;
+    page_rotation_init(&r, 10000, 0, 0);
+    ASSERT(page_rotation_update(&r, true, 0) == PAGE_FACE);       /* Fidel starts thinking */
+    page_rotation_show(&r, PAGE_REMOTE, 30000, 100);              /* tool shows a picture */
+    ASSERT(page_rotation_update(&r, true, 200) == PAGE_REMOTE);
+    ASSERT(page_rotation_update(&r, true, 5000) == PAGE_REMOTE);  /* still talking */
+    ASSERT(page_rotation_update(&r, false, 8000) == PAGE_REMOTE); /* turn over */
+    ASSERT(page_rotation_update(&r, true, 9000) == PAGE_FACE);    /* next message cancels it */
+    ASSERT(page_rotation_update(&r, false, 9500) == PAGE_FACE);
+    return 0;
+}
+
 int test_page_rotation_all(void)
 {
     int failures = 0;
@@ -115,6 +129,7 @@ int test_page_rotation_all(void)
     RUN(activity_cancels_requested_status);
     RUN(requested_status_with_rotation_resumes_full_face_period);
     RUN(remote_page_can_replace_requested_status);
+    RUN(request_made_during_activity_survives_that_activity);
 
 #undef RUN
     return failures;

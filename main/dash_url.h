@@ -10,4 +10,9 @@
 bool dash_url_build(char *buf, size_t len, const char *base, const char *name,
                     const char *location);
 
+// "<base>/<name>.jpg?<key>=<value>" with value percent-encoded (UTF-8 bytes).
+// name and key must be [a-z]+, value non-empty. False when it does not fit.
+bool dash_url_build_param(char *buf, size_t len, const char *base, const char *name,
+                          const char *key, const char *value);
+
 #endif // DASH_URL_H

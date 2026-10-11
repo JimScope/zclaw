@@ -31,7 +31,7 @@ typedef struct {
 
 static volatile bool s_busy = false;
 
-static uint8_t *download(const char *url, size_t *out_len)
+static uint8_t *download(const char *url, size_t *out_len, bool *server_error)
 {
     esp_http_client_config_t cfg = {
         .url = url,
@@ -52,6 +52,11 @@ static uint8_t *download(const char *url, size_t *out_len)
     }
     int64_t content_length = esp_http_client_fetch_headers(client);
     int status = esp_http_client_get_status_code(client);
+    char *dash_error = NULL;
+    if (server_error && esp_http_client_get_header(client, "X-Dash-Error", &dash_error) == ESP_OK &&
+        dash_error) {
+        *server_error = true;  // the body is an error card (still shown)
+    }
     if (status != 200 || content_length <= 0 || content_length > DISPLAY_REMOTE_MAX_BYTES) {
         ESP_LOGW(TAG, "Dashboard HTTP %d, %ld bytes", status, (long)content_length);
         goto done;
@@ -79,26 +84,36 @@ done:
     return buf;
 }
 
-static void fetch_task(void *arg)
+uint8_t *display_remote_download(const char *url, size_t *out_len, bool *server_error)
 {
-    fetch_job_t *job = arg;
     uint8_t *jpeg = NULL;
-    size_t len = 0;
 
-    if (strncmp(job->url, "https://", 8) == 0) {
+    *out_len = 0;
+    if (server_error) {
+        *server_error = false;
+    }
+    if (strncmp(url, "https://", 8) == 0) {
         // TLS costs ~40 KB, so it goes through the HTTP gate. The poll task
         // re-takes the gate immediately: pause it and wait here.
         telegram_pause_polling();
         if (http_gate_acquire("dashboard", pdMS_TO_TICKS(FETCH_GATE_WAIT_MS))) {
-            jpeg = download(job->url, &len);
+            jpeg = download(url, out_len, server_error);
             http_gate_release();
         }
         telegram_resume_polling();
     } else {
         // Plain HTTP needs a few KB: no gate, so a Telegram long-poll in
-        // flight does not delay the dashboard.
-        jpeg = download(job->url, &len);
+        // flight does not delay the picture.
+        jpeg = download(url, out_len, server_error);
     }
+    return jpeg;
+}
+
+static void fetch_task(void *arg)
+{
+    fetch_job_t *job = arg;
+    size_t len = 0;
+    uint8_t *jpeg = display_remote_download(job->url, &len, NULL);
 
     if (!jpeg) {
         ESP_LOGW(TAG, "Dashboard download failed: %s", job->url);

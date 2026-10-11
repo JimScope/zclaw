@@ -6,7 +6,6 @@
 
 #include "display_gfx.h"
 #include "display_hw.h"
-#include "esp_log.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
@@ -15,81 +14,10 @@
 #include "llm.h"
 #include "ota.h"
 #include "status_format.h"
-#include "telegram.h"
 #include "tools_handlers.h"
-#include "weather.h"
 
-#define WEATHER_REFRESH_MS   (30LL * 60 * 1000)
-#define WEATHER_RETRY_MS     (5LL * 60 * 1000)
-#define WEATHER_GATE_WAIT_MS 40000
-#define WEATHER_TASK_STACK   8192
-#define WEATHER_TASK_PRIO    2
 #define VALUE_X              (8 * 8)
 #define ROW_H                20
-
-static const char *TAG = "display_status";
-static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
-static bool s_weather_valid = false;
-static int s_weather_temp_c = 0;
-static int s_weather_code = 0;
-static volatile bool s_weather_busy = false;
-static int64_t s_next_weather_ms = 0;
-
-static void weather_task(void *arg)
-{
-    (void)arg;
-    weather_current_t w;
-    char err[96];
-
-    // The poll task re-takes the HTTP gate immediately, so pause it and wait
-    // for the gate here; only this task waits, nobody else is blocked.
-    telegram_pause_polling();
-    bool ok = weather_fetch_current(false, 0.0f, 0.0f, pdMS_TO_TICKS(WEATHER_GATE_WAIT_MS),
-                                    &w, err, sizeof(err));
-    telegram_resume_polling();
-
-    int64_t now_ms = esp_timer_get_time() / 1000;
-    taskENTER_CRITICAL(&s_lock);
-    if (ok) {
-        s_weather_valid = true;
-        s_weather_temp_c = (int)(w.temp_c + (w.temp_c >= 0 ? 0.5f : -0.5f));
-        s_weather_code = w.code;
-        s_next_weather_ms = now_ms + WEATHER_REFRESH_MS;
-    } else {
-        s_next_weather_ms = now_ms + WEATHER_RETRY_MS;
-    }
-    taskEXIT_CRITICAL(&s_lock);
-
-    if (!ok) {
-        ESP_LOGW(TAG, "Weather refresh failed: %s", err);
-    }
-    s_weather_busy = false;
-    vTaskDelete(NULL);
-}
-
-void display_status_service(int64_t now_ms, bool wifi_up)
-{
-    int64_t next;
-
-    if (!wifi_up || s_weather_busy) {
-        return;
-    }
-    taskENTER_CRITICAL(&s_lock);
-    next = s_next_weather_ms;
-    taskEXIT_CRITICAL(&s_lock);
-    if (now_ms < next) {
-        return;
-    }
-
-    s_weather_busy = true;
-    if (xTaskCreate(weather_task, "weather", WEATHER_TASK_STACK, NULL, WEATHER_TASK_PRIO, NULL) != pdPASS) {
-        s_weather_busy = false;
-        taskENTER_CRITICAL(&s_lock);
-        s_next_weather_ms = now_ms + WEATHER_RETRY_MS;
-        taskEXIT_CRITICAL(&s_lock);
-        ESP_LOGW(TAG, "Could not start weather task");
-    }
-}
 
 static void draw_row(int y, const char *label, const char *value)
 {
@@ -108,9 +36,6 @@ void display_status_draw(bool wifi_up)
     char a[32];
     char b[48];
     char row[64];
-    bool weather_valid;
-    int weather_temp;
-    int weather_code;
 
     gfx_fill_rect(0, 0, DISPLAY_W, DISPLAY_H, GFX_BLACK);
 
@@ -123,19 +48,6 @@ void display_status_draw(bool wifi_up)
     draw_centered(58, a, GFX_GRAY, 1);
 
     int y = 86;
-    taskENTER_CRITICAL(&s_lock);
-    weather_valid = s_weather_valid;
-    weather_temp = s_weather_temp_c;
-    weather_code = s_weather_code;
-    taskEXIT_CRITICAL(&s_lock);
-    if (weather_valid) {
-        snprintf(b, sizeof(b), "%dC %s", weather_temp, weather_code_desc(weather_code));
-    } else {
-        snprintf(b, sizeof(b), "--");
-    }
-    draw_row(y, "Clima", b);
-    y += ROW_H;
-
     wifi_ap_record_t ap;
     memset(&ap, 0, sizeof(ap));
     if (wifi_up && esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {

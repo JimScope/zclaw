@@ -48,6 +48,12 @@ TOOL_ENTRY("http_get",
            "HTTP GET a URL: returns status, latency (ms) and first ~420 bytes of body. Use for compact JSON APIs and as an up/down health check (DOWN if it does not respond).",
            "{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"}},\"required\":[\"url\"]}",
            tools_http_get_handler)
+#if defined(CONFIG_ZCLAW_DISPLAY_ENABLE) && CONFIG_ZCLAW_DISPLAY_ENABLE
+TOOL_ENTRY("display_image",
+           "Show a picture on the device's own 240x240 screen for 30 s. Use 'query' to search the web for it (a game cover, a flag, a place, a person...) or 'url' for a direct image link. Use it whenever the user asks to show or display something on the screen.",
+           "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"},\"url\":{\"type\":\"string\"}}}",
+           tools_display_image_handler)
+#endif
 TOOL_ENTRY("web_search",
            "Search the web (DuckDuckGo). Returns a short plain-text summary of results.",
            "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"}},\"required\":[\"query\"]}",

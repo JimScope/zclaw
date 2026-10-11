@@ -8,6 +8,7 @@ void page_rotation_init(page_rotation_t *r, uint32_t face_ms, uint32_t status_ms
     r->status_ms = status_ms;
     r->requested = PAGE_STATUS;
     r->requested_until_ms = 0;
+    r->prev_forced = false;
 }
 
 void page_rotation_show(page_rotation_t *r, page_t page, uint32_t duration_ms, int64_t now_ms)
@@ -18,9 +19,12 @@ void page_rotation_show(page_rotation_t *r, page_t page, uint32_t duration_ms, i
 
 page_t page_rotation_update(page_rotation_t *r, bool face_forced, int64_t now_ms)
 {
-    if (face_forced) {
+    bool new_activity = face_forced && !r->prev_forced;
+    r->prev_forced = face_forced;
+    if (new_activity) {
         r->requested_until_ms = 0;
-    } else if (r->requested_until_ms != 0) {
+    }
+    if (r->requested_until_ms != 0) {
         if (now_ms < r->requested_until_ms) {
             if (r->page != r->requested) {
                 r->page = r->requested;

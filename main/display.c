@@ -39,6 +39,7 @@ typedef enum {
     DISPLAY_EV_SHOW_STATUS,
     DISPLAY_EV_SHOW_DASH,
     DISPLAY_EV_DASH_DONE,
+    DISPLAY_EV_SHOW_JPEG,
 } display_event_type_t;
 
 typedef struct {
@@ -58,7 +59,8 @@ static face_state_t s_face;
 static page_rotation_t s_pages;
 
 // Dashboard currently requested (PAGE_REMOTE).
-static int s_dash_index = -1;
+static int s_dash_index = -1;          // dashboard to fetch, or -1
+static const char *s_dash_title = "Imagen";
 static uint32_t s_dash_request = 0;
 static bool s_dash_need_fetch = false;
 static uint8_t *s_dash_jpeg = NULL;   // download for s_dash_request, waiting to be drawn
@@ -103,7 +105,7 @@ static void forget_dash_result(void)
 // Draws the dashboard result if one is waiting; returns whether it drew.
 static bool draw_dash_result(void)
 {
-    const char *title = s_dash_index >= 0 ? s_dash_titles[s_dash_index] : "Dashboard";
+    const char *title = s_dash_title;
 
     if (s_dash_jpeg) {
         if (display_remote_draw(s_dash_jpeg, s_dash_len) != ESP_OK) {
@@ -169,8 +171,20 @@ static void apply_event(const display_event_t *ev, int64_t now)
     case DISPLAY_EV_SHOW_DASH:
         forget_dash_result();
         s_dash_index = (int)ev->extra;
+        s_dash_title = s_dash_titles[s_dash_index];
         s_dash_request++;
         s_dash_need_fetch = true;
+        page_rotation_show(&s_pages, PAGE_REMOTE, ev->value, now);
+        break;
+    case DISPLAY_EV_SHOW_JPEG:
+        // Picture already downloaded by the caller (display_image tool).
+        forget_dash_result();
+        s_dash_index = -1;
+        s_dash_title = "Imagen";
+        s_dash_request++;
+        s_dash_need_fetch = false;
+        s_dash_jpeg = ev->ptr;
+        s_dash_len = ev->extra;
         page_rotation_show(&s_pages, PAGE_REMOTE, ev->value, now);
         break;
     case DISPLAY_EV_DASH_DONE:
@@ -208,7 +222,6 @@ static void display_task(void *arg)
         if (sd_card_service(now)) {
             display_face_rescan(&s_face);
         }
-        display_status_service(now, s_face.wifi_up);
         if (s_dash_need_fetch) {
             start_dash_fetch();
         }
@@ -230,8 +243,7 @@ static void display_task(void *arg)
                 display_hw_wait_idle();
             } else if (page == PAGE_REMOTE) {
                 if (!draw_dash_result()) {
-                    draw_message(s_dash_index >= 0 ? s_dash_titles[s_dash_index] : "Dashboard",
-                                 "cargando...");
+                    draw_message(s_dash_title, "cargando...");
                 }
             } else {
                 display_face_invalidate();
@@ -315,6 +327,14 @@ bool display_request_status(uint32_t duration_ms)
     return true;
 }
 
+bool display_show_jpeg(uint8_t *jpeg, size_t len, uint32_t duration_ms)
+{
+    display_event_t ev = {
+        .type = DISPLAY_EV_SHOW_JPEG, .value = duration_ms, .extra = (uint32_t)len, .ptr = jpeg,
+    };
+    return s_queue && jpeg && xQueueSend(s_queue, &ev, pdMS_TO_TICKS(1000)) == pdTRUE;
+}
+
 bool display_request_dashboard(const char *name, uint32_t duration_ms)
 {
     if (!s_queue || !name) {
@@ -336,6 +356,13 @@ void display_notify_thinking(bool active) { (void)active; }
 void display_notify_talking(size_t reply_chars) { (void)reply_chars; }
 void display_notify_wifi(bool connected) { (void)connected; }
 bool display_request_status(uint32_t duration_ms) { (void)duration_ms; return false; }
+bool display_show_jpeg(uint8_t *jpeg, size_t len, uint32_t duration_ms)
+{
+    (void)jpeg;
+    (void)len;
+    (void)duration_ms;
+    return false;
+}
 bool display_request_dashboard(const char *name, uint32_t duration_ms)
 {
     (void)name;

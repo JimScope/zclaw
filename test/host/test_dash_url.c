@@ -57,6 +57,30 @@ TEST(rejects_bad_names_and_overflow)
     return 0;
 }
 
+TEST(param_is_percent_encoded)
+{
+    char url[160];
+    ASSERT(dash_url_build_param(url, sizeof(url), "http://x.org/dash", "image", "q",
+                                "Mario Kart \xC3\xB1 & co"));
+    ASSERT_STR_EQ(url, "http://x.org/dash/image.jpg?q=Mario%20Kart%20%C3%B1%20%26%20co");
+    ASSERT(dash_url_build_param(url, sizeof(url), "http://x.org/dash", "image", "url",
+                                "https://a.b/c?d=1"));
+    ASSERT_STR_EQ(url, "http://x.org/dash/image.jpg?url=https%3A%2F%2Fa.b%2Fc%3Fd%3D1");
+    return 0;
+}
+
+TEST(param_rejects_bad_input_and_overflow)
+{
+    char url[160];
+    char tiny[40];
+    ASSERT(!dash_url_build_param(url, sizeof(url), "http://x.org/dash", "image", "Q!", "x"));
+    ASSERT(!dash_url_build_param(url, sizeof(url), "http://x.org/dash", "image", "q", ""));
+    ASSERT(!dash_url_build_param(url, sizeof(url), "http://x.org/dash", "../x", "q", "a"));
+    ASSERT(!dash_url_build_param(tiny, sizeof(tiny), "http://x.org/dash", "image", "q",
+                                 "a long search that does not fit"));
+    return 0;
+}
+
 int test_dash_url_all(void)
 {
     int failures = 0;
@@ -72,6 +96,8 @@ int test_dash_url_all(void)
     RUN(weather_adds_saved_location);
     RUN(unparsable_location_is_ignored);
     RUN(rejects_bad_names_and_overflow);
+    RUN(param_is_percent_encoded);
+    RUN(param_rejects_bad_input_and_overflow);
 
 #undef RUN
     return failures;

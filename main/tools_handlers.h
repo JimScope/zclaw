@@ -24,6 +24,7 @@ bool tools_ota_update_handler(const cJSON *input, char *result, size_t result_le
 bool tools_memory_export_handler(const cJSON *input, char *result, size_t result_len);
 bool tools_sms_send_handler(const cJSON *input, char *result, size_t result_len);
 bool tools_http_get_handler(const cJSON *input, char *result, size_t result_len);
+bool tools_display_image_handler(const cJSON *input, char *result, size_t result_len);
 bool tools_web_search_handler(const cJSON *input, char *result, size_t result_len);
 bool tools_read_web_handler(const cJSON *input, char *result, size_t result_len);
 bool tools_weather_handler(const cJSON *input, char *result, size_t result_len);
