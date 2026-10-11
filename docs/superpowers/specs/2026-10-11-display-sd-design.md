@@ -324,3 +324,31 @@ On the board:
 4. Measure per-frame timings in the log and the minimum heap via `/status`.
 5. `CONFIG_ZCLAW_DISPLAY_ENABLE=n` + `CONFIG_ZCLAW_SD_ENABLE=n` builds and
    behaves as before.
+
+## 14. As built (2026-10-11)
+
+Verified on Fidel's board. Where this list and the sections above disagree,
+this list wins.
+
+- **Panel values confirmed:** colour inversion on, gaps 0/0, RGB order, SPI
+  mode 0 — the Kconfig defaults.
+- **SD CS is GPIO 18, not 3.** On this board GPIO3 powers the RF switch:
+  driving it high (as SD CS did) left WiFi with zero visible networks.
+  New `CONFIG_ZCLAW_BOARD_RESERVED_GPIOS` (default `"3"` on ESP32-C6): GPIO
+  tools refuse those pins with their own hint, and `board_spi` refuses to
+  start the bus on them. Reserved-pin capacity is 12.
+- **Status page only on demand:** `CONFIG_ZCLAW_STATUS_SECONDS` defaults to
+  0; `/panel` (chat or serial, no LLM) shows it for 15 s; thinking/talking
+  cancel it. Clock in 12-hour format.
+- **Face frames:** `scripts/face_assets.py --fit` (default 1) keeps the whole
+  photo and extends its edges; alignment also extends edges.
+- **Heap:** the "≥ 100 KB minimum" criterion was unattainable (the
+  display-off build already drops to 96.6 KB after one LLM TLS call).
+  Measured after an LLM call: display-off 146,232 free / 96,576 min;
+  display+SD 117,544 free / 76,764 min. Reached with
+  `CONFIG_WL_SECTOR_SIZE_512` (FatFs sized every file buffer for 4096-byte
+  sectors: SD mount 27 KB → 9 KB) and 8-row display strips.
+- **Timing:** full frame from SD 225 ms (estimate was ~85 ms); patches are
+  small. Binary 0x11c600 (23 % of the OTA slot free).
+- `config.h` now includes `sdkconfig.h`; before, files that included it
+  first silently ignored Kconfig in its `#ifdef CONFIG_*` checks.
