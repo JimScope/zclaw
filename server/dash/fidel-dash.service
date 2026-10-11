@@ -1,0 +1,13 @@
+[Unit]
+Description=Fidel dashboard cards (JPEG) for the ST7789 display
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/fidel-dash
+ExecStart=%h/fidel-dash/venv/bin/python %h/fidel-dash/server.py
+Environment=DASH_PORT=9002
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
