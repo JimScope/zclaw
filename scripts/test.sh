@@ -69,6 +69,7 @@ run_host_tests() {
         test_llm_auth.c \
         test_wifi_credentials.c \
         test_text_latin1.c \
+        test_frame_format.c \
         test_runner.c \
         mock_esp.c \
         mock_memory.c \
@@ -104,6 +105,7 @@ run_host_tests() {
         ../../main/tools_system.c \
         ../../main/text_latin1.c \
         ../../main/font8x16.c \
+        ../../main/frame_format.c \
         $CJSON_LDFLAGS 2>&1 || {
         echo "Note: Failed to compile tests. Install cJSON:"
         echo "  macOS:  brew install cjson"
