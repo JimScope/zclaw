@@ -619,6 +619,7 @@ static const char *get_stub_response(const char *request_json)
 }
 #endif
 
+#if !CONFIG_ZCLAW_EMULATOR_LIVE_LLM && !defined(CONFIG_ZCLAW_STUB_LLM)
 // Returns a new request body with the model replaced, or NULL when the body
 // already uses fallback_model (or on parse failure). Caller frees.
 static char *llm_swap_model_in_request(const char *request_json, const char *fallback_model)
@@ -640,6 +641,7 @@ static char *llm_swap_model_in_request(const char *request_json, const char *fal
     cJSON_Delete(root);
     return out;
 }
+#endif
 
 esp_err_t llm_request(const char *request_json, char *response_buf, size_t response_buf_size)
 {
