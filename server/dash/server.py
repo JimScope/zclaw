@@ -4,6 +4,7 @@
 Behind Caddy (`handle_path /dash/*`), so paths here have no /dash prefix:
     GET /clima.jpg?lat=20.02&lon=-75.83
     GET /cripto.jpg?ids=bitcoin,binancecoin,solana,tron
+    GET /image.jpg?q=mario+kart+world   (or ?url=https://...)
     GET /health
 Data comes from Open-Meteo and CoinGecko and is cached in memory. A failing
 source still returns a JPEG (an error card) with X-Dash-Error: 1, so the
@@ -13,7 +14,10 @@ board always has something to show.
 from __future__ import annotations
 
 import datetime as dt
+import html
+import io
 import json
+import re
 import os
 import threading
 import time
@@ -23,6 +27,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable
 from zoneinfo import ZoneInfo
 
+from PIL import Image
+
 import dash
 
 PORT = int(os.environ.get("DASH_PORT", "9002"))
@@ -31,6 +37,11 @@ CRYPTO_TTL = 2 * 60
 DEFAULT_COINS = ["bitcoin", "binancecoin", "solana", "tron"]
 LOCAL_TZ = ZoneInfo("America/Havana")
 FETCH_TIMEOUT_S = 10
+IMAGE_TTL = 24 * 60 * 60
+IMAGE_MAX_BYTES = 8 * 1024 * 1024
+IMAGE_CANDIDATES = 6
+BROWSER_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 "
+              "(KHTML, like Gecko) Version/17.0 Safari/605.1.15")
 
 
 def fetch_json(url: str) -> dict:
@@ -39,10 +50,54 @@ def fetch_json(url: str) -> dict:
         return json.load(resp)
 
 
+def fetch_bytes(url: str) -> bytes:
+    req = urllib.request.Request(url, headers={"User-Agent": BROWSER_UA})
+    with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT_S) as resp:
+        data = resp.read(IMAGE_MAX_BYTES + 1)
+    if len(data) > IMAGE_MAX_BYTES:
+        raise ValueError("image too large")
+    return data
+
+
+def _get_text(url: str, referer: str | None = None) -> str:
+    headers = {"User-Agent": BROWSER_UA}
+    if referer:
+        headers["Referer"] = referer
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT_S) as resp:
+        return resp.read().decode("utf-8", "replace")
+
+
+def search_images(query: str) -> list[str]:
+    """Image URLs for query: Bing first, DuckDuckGo as fallback (both unofficial)."""
+    urls: list[str] = []
+    try:
+        page = _get_text("https://www.bing.com/images/search?" + urllib.parse.urlencode({"q": query, "form": "HDRSC2"}))
+        urls += [html.unescape(u) for u in re.findall(r"murl&quot;:&quot;(.*?)&quot;", page)]
+    except OSError:
+        pass
+    if len(urls) < IMAGE_CANDIDATES:
+        try:
+            page = _get_text("https://duckduckgo.com/?" + urllib.parse.urlencode({"q": query, "iax": "images", "ia": "images"}))
+            vqd = re.search(r"vqd=[\"']?([\d-]+)", page)
+            if vqd:
+                data = json.loads(_get_text("https://duckduckgo.com/i.js?" + urllib.parse.urlencode(
+                    {"l": "us-en", "o": "json", "q": query, "vqd": vqd.group(1), "f": ",,,,,", "p": "1"}),
+                    referer="https://duckduckgo.com/"))
+                urls += [r["image"] for r in data.get("results", []) if r.get("image")]
+        except (OSError, ValueError):
+            pass
+    return urls
+
+
 class Dash:
-    def __init__(self, fetch: Callable[[str], dict], clock: Callable[[], float] = time.time):
+    def __init__(self, fetch: Callable[[str], dict], clock: Callable[[], float] = time.time,
+                 search: Callable[[str], list[str]] = search_images,
+                 fetch_bytes: Callable[[str], bytes] = fetch_bytes):
         self._fetch = fetch
         self._clock = clock
+        self._search = search
+        self._fetch_bytes = fetch_bytes
         self._cache: dict[str, tuple[float, bytes]] = {}
         self._lock = threading.Lock()
 
@@ -88,6 +143,26 @@ class Dash:
             return dash.render_error("Cripto", "sin datos"), False
 
 
+    def image(self, query: str | None = None, url: str | None = None) -> tuple[bytes, bool]:
+        """A searched (query) or given (url) picture as a dashboard JPEG."""
+        def build() -> bytes:
+            candidates = [url] if url else self._search(query or "")[:IMAGE_CANDIDATES]
+            for candidate in candidates:
+                try:
+                    picture = Image.open(io.BytesIO(self._fetch_bytes(candidate)))
+                    picture.load()
+                except (OSError, ValueError, Image.DecompressionBombError):
+                    continue
+                return dash.render_picture(picture)
+            raise ValueError("no usable image")
+
+        key = f"u:{url}" if url else f"q:{(query or '').strip().lower()}"
+        try:
+            return self._cached(key, IMAGE_TTL, build)
+        except (OSError, ValueError):
+            return dash.render_error("Imagen", "no encontrada"), False
+
+
 def make_handler(service: Dash) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         def _send(self, status: int, body: bytes, ctype: str, error: bool = False) -> None:
@@ -117,6 +192,14 @@ def make_handler(service: Dash) -> type[BaseHTTPRequestHandler]:
             elif url.path == "/cripto.jpg":
                 ids = [i for i in query.get("ids", [",".join(DEFAULT_COINS)])[0].split(",") if i][:5]
                 jpeg, ok = service.crypto(ids or DEFAULT_COINS)
+                self._send(200, jpeg, "image/jpeg", error=not ok)
+            elif url.path == "/image.jpg":
+                q = (query.get("q") or [""])[0].strip()
+                src = (query.get("url") or [""])[0].strip()
+                if not q and not src.startswith(("http://", "https://")):
+                    self._send(400, b"q or url required", "text/plain")
+                    return
+                jpeg, ok = service.image(query=q or None, url=src or None)
                 self._send(200, jpeg, "image/jpeg", error=not ok)
             else:
                 self._send(404, b"not found", "text/plain")

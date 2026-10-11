@@ -14,11 +14,13 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFile, ImageFilter, ImageFont, ImageOps
 
 SIZE = 240
+# optimize=True needs room for the whole encoded image (busy photos at high quality).
+ImageFile.MAXBLOCK = 1 << 20
 MAX_JPEG_BYTES = 48 * 1024
-JPEG_QUALITY = 88
+JPEG_QUALITY_STEPS = (88, 78, 68, 55, 40, 25)
 
 FONT_DIR = Path(__file__).resolve().parent / "fonts"
 BG = (16, 22, 28)
@@ -186,13 +188,14 @@ def _canvas() -> tuple[Image.Image, ImageDraw.ImageDraw]:
 
 
 def _encode(img: Image.Image) -> bytes:
-    buf = io.BytesIO()
-    img.save(buf, "JPEG", quality=JPEG_QUALITY, subsampling=0, optimize=True, progressive=False)
-    data = buf.getvalue()
-    if len(data) >= MAX_JPEG_BYTES:  # busy content: trade quality for size
+    """Baseline 4:4:4 JPEG, stepping quality down until it fits MAX_JPEG_BYTES."""
+    data = b""
+    for quality in JPEG_QUALITY_STEPS:
         buf = io.BytesIO()
-        img.save(buf, "JPEG", quality=70, subsampling=0, optimize=True, progressive=False)
+        img.save(buf, "JPEG", quality=quality, subsampling=0, optimize=True, progressive=False)
         data = buf.getvalue()
+        if len(data) < MAX_JPEG_BYTES:
+            break
     return data
 
 
@@ -312,3 +315,13 @@ def render_error(title: str, message: str) -> bytes:
     _text_center(draw, SIZE / 2, 90, title, _font(22, bold=True), AMBER)
     _text_center(draw, SIZE / 2, 126, message, _font(15), DIM)
     return _encode(img)
+
+
+def render_picture(img: Image.Image) -> bytes:
+    """Any picture fitted whole into the square, over a blurred, darkened copy of itself."""
+    img = ImageOps.exif_transpose(img).convert("RGB")
+    background = ImageOps.fit(img, (SIZE, SIZE), Image.LANCZOS).filter(ImageFilter.GaussianBlur(14))
+    background = Image.eval(background, lambda v: v * 45 // 100)
+    foreground = ImageOps.contain(img, (SIZE, SIZE), Image.LANCZOS)
+    background.paste(foreground, ((SIZE - foreground.width) // 2, (SIZE - foreground.height) // 2))
+    return _encode(background)

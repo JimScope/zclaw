@@ -140,6 +140,24 @@ class RenderTest(unittest.TestCase):
         self.assertTrue(cut.endswith("…"))
         self.assertLessEqual(draw.textlength(cut, font=font), 88)
 
+class PictureTest(unittest.TestCase):
+    def test_portrait_cover_is_contained_on_blurred_background(self):
+        cover = Image.new("RGB", (300, 400), (200, 30, 30))
+        jpeg = dash.render_picture(cover)
+        img = decode(jpeg)
+        self.assertEqual(img.size, (240, 240))
+        self.assertEqual(JpegImagePlugin.get_sampling(img), 0)
+        r, g, b = img.getpixel((120, 120))
+        self.assertGreater(r, 150)  # the cover itself in the middle
+        r2, g2, b2 = img.getpixel((3, 120))
+        self.assertLess(r2, r)      # darkened background at the sides
+        self.assertLess(len(jpeg), dash.MAX_JPEG_BYTES)
+
+    def test_worst_case_noise_still_fits(self):
+        import os
+        noise = Image.frombytes("RGB", (240, 240), os.urandom(240 * 240 * 3))
+        self.assertLess(len(dash.render_picture(noise)), dash.MAX_JPEG_BYTES)
+
 
 if __name__ == "__main__":
     unittest.main()
