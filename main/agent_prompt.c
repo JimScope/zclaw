@@ -1,4 +1,5 @@
 #include "agent_prompt.h"
+#include "gpio_policy.h"
 #include "config.h"
 #include "esp_log.h"
 #include <stdio.h>
@@ -43,6 +44,24 @@ static const char *device_target_name(void)
 #endif
 }
 
+static void append_reserved_pins(char *buf, size_t buf_len)
+{
+    int pins[GPIO_POLICY_MAX_RESERVED];
+    size_t count = gpio_policy_reserved_pins(pins, GPIO_POLICY_MAX_RESERVED);
+    size_t used = strlen(buf);
+
+    if (count == 0 || used + 1 >= buf_len) {
+        return;
+    }
+    used += (size_t)snprintf(buf + used, buf_len - used, " Pins");
+    for (size_t i = 0; i < count && used < buf_len; i++) {
+        used += (size_t)snprintf(buf + used, buf_len - used, "%s %d", i == 0 ? "" : ",", pins[i]);
+    }
+    if (used < buf_len) {
+        snprintf(buf + used, buf_len - used, " are reserved for the display/SD bus.");
+    }
+}
+
 static void build_gpio_policy_summary(char *buf, size_t buf_len)
 {
     if (!buf || buf_len == 0) {
@@ -53,12 +72,12 @@ static void build_gpio_policy_summary(char *buf, size_t buf_len)
         snprintf(buf, buf_len,
                  "Tool-safe GPIO pins on this device are restricted to allowlist: %s.",
                  GPIO_ALLOWED_PINS_CSV);
-        return;
+    } else {
+        snprintf(buf, buf_len,
+                 "Tool-safe GPIO pins on this device are restricted to range %d-%d.",
+                 GPIO_MIN_PIN, GPIO_MAX_PIN);
     }
-
-    snprintf(buf, buf_len,
-             "Tool-safe GPIO pins on this device are restricted to range %d-%d.",
-             GPIO_MIN_PIN, GPIO_MAX_PIN);
+    append_reserved_pins(buf, buf_len);
 }
 
 bool agent_parse_persona_name(const char *name, agent_persona_t *out)

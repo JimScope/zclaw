@@ -48,6 +48,75 @@ static bool pin_in_allowlist(int pin, const char *csv)
     return false;
 }
 
+static int s_reserved[GPIO_POLICY_MAX_RESERVED];
+static size_t s_reserved_count;
+static bool s_reserved_ready;
+
+static void reserved_add(int pin)
+{
+    if (pin < 0) {
+        return;
+    }
+    for (size_t i = 0; i < s_reserved_count; i++) {
+        if (s_reserved[i] == pin) {
+            return;
+        }
+    }
+    if (s_reserved_count < GPIO_POLICY_MAX_RESERVED) {
+        s_reserved[s_reserved_count++] = pin;
+    }
+}
+
+static void reserved_load_from_config(void)
+{
+    s_reserved_count = 0;
+#if !(CONFIG_ZCLAW_DISPLAY_ENABLE || CONFIG_ZCLAW_SD_ENABLE)
+    (void)reserved_add;  // only the TEST_BUILD hook adds pins in this configuration
+#endif
+#if CONFIG_ZCLAW_DISPLAY_ENABLE || CONFIG_ZCLAW_SD_ENABLE
+    reserved_add(CONFIG_ZCLAW_SPI_SCLK_GPIO);
+    reserved_add(CONFIG_ZCLAW_SPI_MOSI_GPIO);
+#endif
+#if CONFIG_ZCLAW_DISPLAY_ENABLE
+    reserved_add(CONFIG_ZCLAW_DISPLAY_CS_GPIO);
+    reserved_add(CONFIG_ZCLAW_DISPLAY_DC_GPIO);
+    reserved_add(CONFIG_ZCLAW_DISPLAY_RST_GPIO);
+    reserved_add(CONFIG_ZCLAW_DISPLAY_BL_GPIO);
+#endif
+#if CONFIG_ZCLAW_SD_ENABLE
+    reserved_add(CONFIG_ZCLAW_SPI_MISO_GPIO);
+    reserved_add(CONFIG_ZCLAW_SD_CS_GPIO);
+#endif
+    s_reserved_ready = true;
+}
+
+static bool pin_is_reserved(int pin)
+{
+    if (!s_reserved_ready) {
+        reserved_load_from_config();
+    }
+    for (size_t i = 0; i < s_reserved_count; i++) {
+        if (s_reserved[i] == pin) {
+            return true;
+        }
+    }
+    return false;
+}
+
+size_t gpio_policy_reserved_pins(int *out, size_t max)
+{
+    size_t n;
+
+    if (!s_reserved_ready) {
+        reserved_load_from_config();
+    }
+    n = s_reserved_count < max ? s_reserved_count : max;
+    for (size_t i = 0; out && i < n; i++) {
+        out[i] = s_reserved[i];
+    }
+    return out ? n : 0;
+}
+
 static bool pin_is_allowed_impl(int pin,
                                 const char *allowlist_csv,
                                 int min_pin,
@@ -58,6 +127,10 @@ static bool pin_is_allowed_impl(int pin,
     bool in_policy;
 
     if (pin < 0) {
+        return false;
+    }
+
+    if (pin_is_reserved(pin)) {
         return false;
     }
 
@@ -102,6 +175,12 @@ bool gpio_policy_runtime_input_pin_is_safe(int pin)
 
 bool gpio_policy_pin_forbidden_hint(int pin, char *result, size_t result_len)
 {
+    if (pin >= 0 && pin_is_reserved(pin)) {
+        snprintf(result, result_len,
+                 "Error: pin %d is reserved for the display/SD SPI bus; choose a different pin",
+                 pin);
+        return true;
+    }
 #if defined(CONFIG_IDF_TARGET_ESP32)
     if (pin >= 6 && pin <= 11) {
         snprintf(result, result_len,
@@ -109,12 +188,7 @@ bool gpio_policy_pin_forbidden_hint(int pin, char *result, size_t result_len)
                  pin);
         return true;
     }
-#else
-    (void)pin;
-    (void)result;
-    (void)result_len;
 #endif
-
     return false;
 }
 
@@ -134,5 +208,18 @@ bool gpio_policy_test_runtime_input_pin_is_safe(int pin,
                                                 bool require_valid_gpio)
 {
     return pin_is_allowed_impl(pin, NULL, 0, INT_MAX, block_esp32_flash_pins, require_valid_gpio);
+}
+
+void gpio_policy_test_set_reserved(const int *pins, size_t count)
+{
+    if (!pins || count == 0) {
+        reserved_load_from_config();
+        return;
+    }
+    s_reserved_count = 0;
+    for (size_t i = 0; i < count; i++) {
+        reserved_add(pins[i]);
+    }
+    s_reserved_ready = true;
 }
 #endif

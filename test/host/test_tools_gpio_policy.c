@@ -8,6 +8,7 @@
 #include "config.h"
 #include "driver/gpio.h"
 #include "tools_handlers.h"
+#include "gpio_policy.h"
 
 #define TEST(name) static int test_##name(void)
 #define ASSERT(cond) do { \
@@ -231,6 +232,48 @@ TEST(write_high_then_low_roundtrip)
     return 0;
 }
 
+bool tools_validate_allowed_gpio_pin(int pin, const char *field_name, char *error, size_t error_len);
+
+TEST(reserved_pins_are_rejected_for_tools)
+{
+    static const int reserved[] = {5, 6, 7, 10, 2, 3};
+    char err[160];
+
+    gpio_policy_test_set_reserved(reserved, sizeof(reserved) / sizeof(reserved[0]));
+    ASSERT(!gpio_policy_pin_is_allowed(5));
+    ASSERT(!gpio_policy_pin_is_allowed(2));
+    ASSERT(gpio_policy_pin_is_allowed(4));
+    ASSERT(gpio_policy_pin_is_allowed(9));
+    ASSERT(!gpio_policy_runtime_input_pin_is_safe(6));
+    ASSERT(gpio_policy_runtime_input_pin_is_safe(9));
+
+    ASSERT(gpio_policy_pin_forbidden_hint(7, err, sizeof(err)));
+    ASSERT_STR_CONTAINS(err, "reserved for the display/SD SPI bus");
+
+    err[0] = '\0';
+    ASSERT(!tools_validate_allowed_gpio_pin(6, "pin", err, sizeof(err)));
+    ASSERT_STR_CONTAINS(err, "reserved");
+
+    int out[GPIO_POLICY_MAX_RESERVED];
+    ASSERT(gpio_policy_reserved_pins(out, GPIO_POLICY_MAX_RESERVED) == 6);
+
+    gpio_policy_test_set_reserved(NULL, 0);
+    ASSERT(gpio_policy_pin_is_allowed(5));
+    ASSERT(gpio_policy_reserved_pins(out, GPIO_POLICY_MAX_RESERVED) == 0);
+    return 0;
+}
+
+TEST(reserved_list_deduplicates_shared_pins)
+{
+    static const int reserved[] = {6, 5, 6, 5, 7};
+    int out[GPIO_POLICY_MAX_RESERVED];
+
+    gpio_policy_test_set_reserved(reserved, sizeof(reserved) / sizeof(reserved[0]));
+    ASSERT(gpio_policy_reserved_pins(out, GPIO_POLICY_MAX_RESERVED) == 3);
+    gpio_policy_test_set_reserved(NULL, 0);
+    return 0;
+}
+
 int test_tools_gpio_policy_all(void)
 {
     int failures = 0;
@@ -302,6 +345,20 @@ int test_tools_gpio_policy_all(void)
 
     printf("  write_high_then_low_roundtrip... ");
     if (test_write_high_then_low_roundtrip() == 0) {
+        printf("OK\n");
+    } else {
+        failures++;
+    }
+
+    printf("  reserved_pins_are_rejected_for_tools... ");
+    if (test_reserved_pins_are_rejected_for_tools() == 0) {
+        printf("OK\n");
+    } else {
+        failures++;
+    }
+
+    printf("  reserved_list_deduplicates_shared_pins... ");
+    if (test_reserved_list_deduplicates_shared_pins() == 0) {
         printf("OK\n");
     } else {
         failures++;

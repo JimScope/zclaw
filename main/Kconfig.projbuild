@@ -124,6 +124,102 @@ menu "zclaw Configuration"
             Data pin of the onboard WS2812/NeoPixel LED used by the
             led_set/led_blink tools. Most ESP32-C6 devkits use GPIO 8.
 
+    menu "Display and SD card"
+        config ZCLAW_DISPLAY_ENABLE
+            bool "Enable ST7789 240x240 SPI display"
+            default n
+            help
+                Animated face (frames from the SD card) alternating with a
+                status page. Shares SPI2 with the SD card.
+
+        config ZCLAW_SD_ENABLE
+            bool "Enable SD card (FAT) on the shared SPI bus"
+            default n
+
+        config ZCLAW_SPI_SCLK_GPIO
+            int "Shared SPI SCLK GPIO"
+            range 0 48
+            default 6
+            depends on ZCLAW_DISPLAY_ENABLE || ZCLAW_SD_ENABLE
+
+        config ZCLAW_SPI_MOSI_GPIO
+            int "Shared SPI MOSI GPIO"
+            range 0 48
+            default 5
+            depends on ZCLAW_DISPLAY_ENABLE || ZCLAW_SD_ENABLE
+
+        config ZCLAW_SPI_MISO_GPIO
+            int "Shared SPI MISO GPIO (SD card only)"
+            range 0 48
+            default 2
+            depends on ZCLAW_SD_ENABLE
+
+        config ZCLAW_DISPLAY_CS_GPIO
+            int "Display CS GPIO"
+            range 0 48
+            default 7
+            depends on ZCLAW_DISPLAY_ENABLE
+
+        config ZCLAW_DISPLAY_DC_GPIO
+            int "Display DC GPIO"
+            range 0 48
+            default 1
+            depends on ZCLAW_DISPLAY_ENABLE
+
+        config ZCLAW_DISPLAY_RST_GPIO
+            int "Display reset GPIO"
+            range 0 48
+            default 0
+            depends on ZCLAW_DISPLAY_ENABLE
+
+        config ZCLAW_DISPLAY_BL_GPIO
+            int "Display backlight GPIO (PWM)"
+            range 0 48
+            default 10
+            depends on ZCLAW_DISPLAY_ENABLE
+
+        config ZCLAW_DISPLAY_INVERT_COLORS
+            bool "Invert display colours (most IPS ST7789 modules need this)"
+            default y
+            depends on ZCLAW_DISPLAY_ENABLE
+
+        config ZCLAW_DISPLAY_X_GAP
+            int "Display column offset"
+            range 0 80
+            default 0
+            depends on ZCLAW_DISPLAY_ENABLE
+
+        config ZCLAW_DISPLAY_Y_GAP
+            int "Display row offset"
+            range 0 80
+            default 0
+            depends on ZCLAW_DISPLAY_ENABLE
+
+        config ZCLAW_DISPLAY_BRIGHTNESS
+            int "Backlight brightness (%)"
+            range 0 100
+            default 80
+            depends on ZCLAW_DISPLAY_ENABLE
+
+        config ZCLAW_FACE_SECONDS
+            int "Seconds on the face page"
+            range 1 600
+            default 10
+            depends on ZCLAW_DISPLAY_ENABLE
+
+        config ZCLAW_STATUS_SECONDS
+            int "Seconds on the status page (0 = never)"
+            range 0 600
+            default 5
+            depends on ZCLAW_DISPLAY_ENABLE
+
+        config ZCLAW_SD_CS_GPIO
+            int "SD card CS GPIO"
+            range 0 48
+            default 3
+            depends on ZCLAW_SD_ENABLE
+    endmenu
+
     menu "Factory Reset"
         config ZCLAW_FACTORY_RESET_PIN
             int "Factory reset button GPIO"
