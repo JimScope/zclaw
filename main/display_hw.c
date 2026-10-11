@@ -27,6 +27,7 @@ static uint16_t *s_buf[2] = {NULL, NULL};
 static int s_next_buf = 0;
 static SemaphoreHandle_t s_free = NULL;
 static bool s_ready = false;
+static uint8_t s_brightness = 0;
 
 static bool on_color_done(esp_lcd_panel_io_handle_t io, esp_lcd_panel_io_event_data_t *edata,
                           void *ctx)
@@ -60,6 +61,7 @@ static void backlight_init(void)
         .hpoint = 0,
     };
     ledc_channel_config(&channel);
+    ledc_fade_func_install(0);
 }
 
 void display_hw_set_brightness(uint8_t percent)
@@ -67,8 +69,28 @@ void display_hw_set_brightness(uint8_t percent)
     if (percent > 100) {
         percent = 100;
     }
+    s_brightness = percent;
     ledc_set_duty(LEDC_LOW_SPEED_MODE, BACKLIGHT_CHANNEL, (1023u * percent) / 100u);
     ledc_update_duty(LEDC_LOW_SPEED_MODE, BACKLIGHT_CHANNEL);
+}
+
+void display_hw_fade(uint8_t percent, uint32_t ms)
+{
+    if (percent > 100) {
+        percent = 100;
+    }
+    if (ms == 0) {
+        ledc_set_duty(LEDC_LOW_SPEED_MODE, BACKLIGHT_CHANNEL, (1023u * percent) / 100u);
+        ledc_update_duty(LEDC_LOW_SPEED_MODE, BACKLIGHT_CHANNEL);
+        return;
+    }
+    ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, BACKLIGHT_CHANNEL, (1023u * percent) / 100u, (int)ms);
+    ledc_fade_start(LEDC_LOW_SPEED_MODE, BACKLIGHT_CHANNEL, LEDC_FADE_WAIT_DONE);
+}
+
+uint8_t display_hw_brightness(void)
+{
+    return s_brightness;
 }
 
 static void release_resources(void)
@@ -238,5 +260,7 @@ esp_err_t display_hw_blit(int x, int y, int w, int h, uint16_t *buf)
 }
 void display_hw_wait_idle(void) {}
 void display_hw_set_brightness(uint8_t percent) { (void)percent; }
+void display_hw_fade(uint8_t percent, uint32_t ms) { (void)percent; (void)ms; }
+uint8_t display_hw_brightness(void) { return 0; }
 
 #endif

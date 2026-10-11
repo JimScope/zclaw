@@ -30,4 +30,9 @@ void display_hw_wait_idle(void);
 
 void display_hw_set_brightness(uint8_t percent);
 
+// Hardware backlight fade to percent over ms (blocks until done). Used to
+// hide full redraws: fade to 0, draw, fade back to display_hw_brightness().
+void display_hw_fade(uint8_t percent, uint32_t ms);
+uint8_t display_hw_brightness(void);
+
 #endif // DISPLAY_HW_H

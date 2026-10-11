@@ -8,5 +8,7 @@ void mock_display_reset(void);
 void mock_display_set_running(bool running);
 uint32_t mock_display_last_status_ms(void);
 int mock_display_talking_calls(void);
+const char *mock_display_last_dashboard(void);
+uint32_t mock_display_last_dashboard_ms(void);
 
 #endif // MOCK_DISPLAY_H

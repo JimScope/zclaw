@@ -223,6 +223,14 @@ menu "zclaw Configuration"
             default 0
             depends on ZCLAW_DISPLAY_ENABLE
 
+        config ZCLAW_DASH_BASE_URL
+            string "Base URL of the dashboard image service (/clima, /cripto)"
+            default "http://bolita-cubana.duckdns.org/dash"
+            help
+                Plain http:// skips the HTTP gate (no TLS memory), so the image
+                does not wait for a Telegram long-poll; https:// waits for it.
+            depends on ZCLAW_DISPLAY_ENABLE
+
         config ZCLAW_SD_CS_GPIO
             int "SD card CS GPIO"
             range 0 48

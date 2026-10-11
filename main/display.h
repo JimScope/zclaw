@@ -21,4 +21,8 @@ void display_notify_wifi(bool connected);
 // is disabled or not running.
 bool display_request_status(uint32_t duration_ms);
 
+// Show the VPS dashboard <name> ("clima", "cripto") for duration_ms.
+// False when the display is disabled or not running.
+bool display_request_dashboard(const char *name, uint32_t duration_ms);
+
 #endif // DISPLAY_API_H

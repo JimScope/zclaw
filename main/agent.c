@@ -14,7 +14,7 @@
 #include "telegram.h"
 #include "display.h"
 
-#define PANEL_DISPLAY_MS 15000
+#define PANEL_DISPLAY_MS 30000
 #include "cJSON.h"
 #include "esp_timer.h"
 #include "esp_log.h"
@@ -367,7 +367,7 @@ static void handle_start_command(int64_t chat_id)
         "- /help (show this message)\n"
         "- /settings (show status)\n"
         "- /status, /temp (device status, chip temperature)\n"
-        "- /panel (show the status page on the display for 15 s)\n"
+        "- /panel, /clima, /cripto (dashboards on the display for 30 s)\n"
         "- /stop (pause intake)\n"
         "- /resume (resume)\n"
         "\n"
@@ -480,11 +480,26 @@ static void process_message(const char *user_message, message_source_t source, i
     if (agent_is_command(user_message, "panel")) {
         // Ack without display_notify_talking(): the talking face would cover the panel.
         const char *reply = display_request_status(PANEL_DISPLAY_MS)
-                                ? "Panel en pantalla 15 s."
+                                ? "Panel en pantalla 30 s."
                                 : "Pantalla no disponible.";
         queue_channel_response(reply);
         queue_telegram_response(reply, reply_chat_id);
         metrics_log_request(&metrics, "panel_handled");
+        return;
+    }
+
+    if (agent_is_command(user_message, "clima") || agent_is_command(user_message, "cripto")) {
+        bool weather = agent_is_command(user_message, "clima");
+        const char *reply;
+        if (display_request_dashboard(weather ? "clima" : "cripto", PANEL_DISPLAY_MS)) {
+            reply = weather ? "Clima en pantalla 30 s." : "Cripto en pantalla 30 s.";
+        } else {
+            reply = "Pantalla no disponible.";
+        }
+        // Same as /panel: no talking animation over the dashboard.
+        queue_channel_response(reply);
+        queue_telegram_response(reply, reply_chat_id);
+        metrics_log_request(&metrics, weather ? "clima_handled" : "cripto_handled");
         return;
     }
 

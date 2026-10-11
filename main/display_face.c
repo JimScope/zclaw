@@ -12,6 +12,7 @@
 
 #define FACE_DIR      SD_MOUNT_POINT "/face"
 #define FACE_PATH_MAX 64
+#define FACE_FADE_MS  150
 
 static const char *TAG = "display_face";
 
@@ -226,7 +227,18 @@ bool display_face_draw(face_state_t *st, int64_t now_ms)
 
     if (!s_drawn.valid || s_drawn.text || fr.expr != s_drawn.expr ||
         fr.expr_variant != s_drawn.expr_variant) {
-        if (!draw_file(s_expr_names[fr.expr], s_expr[fr.expr].suffix[fr.expr_variant])) {
+        // An expression change on screen fades through black; the first draw
+        // after a page switch is already covered by the page fade.
+        bool fade = s_drawn.valid;
+        if (fade) {
+            display_hw_fade(0, FACE_FADE_MS);
+        }
+        bool ok = draw_file(s_expr_names[fr.expr], s_expr[fr.expr].suffix[fr.expr_variant]);
+        if (fade) {
+            display_hw_wait_idle();
+            display_hw_fade(display_hw_brightness(), FACE_FADE_MS);
+        }
+        if (!ok) {
             return false;
         }
         memset(&s_drawn, 0, sizeof(s_drawn));

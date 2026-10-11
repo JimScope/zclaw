@@ -30,6 +30,8 @@ extern int test_frame_format_all(void);
 extern int test_face_state_all(void);
 extern int test_page_rotation_all(void);
 extern int test_status_format_all(void);
+extern int test_dash_url_all(void);
+extern int test_jpeg_strip_all(void);
 
 int main(int argc, char *argv[])
 {
@@ -63,6 +65,8 @@ int main(int argc, char *argv[])
     failures += test_face_state_all();
     failures += test_page_rotation_all();
     failures += test_status_format_all();
+    failures += test_dash_url_all();
+    failures += test_jpeg_strip_all();
 
     printf("\n===================\n");
     if (failures == 0) {

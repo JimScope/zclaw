@@ -365,7 +365,7 @@ TEST(panel_command_shows_status_without_talking)
     mock_display_set_running(true);
     agent_test_process_message("/panel");
     ASSERT(mock_llm_request_count() == 0);
-    ASSERT(mock_display_last_status_ms() == 15000);
+    ASSERT(mock_display_last_status_ms() == 30000);
     ASSERT(mock_display_talking_calls() == 0);
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
     ASSERT(strstr(text, "Panel") != NULL);
@@ -374,6 +374,48 @@ TEST(panel_command_shows_status_without_talking)
 
     mock_display_set_running(false);
     agent_test_process_message("/panel");
+    ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
+    ASSERT(strstr(text, "no disponible") != NULL);
+    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
+
+    vQueueDelete(channel_q);
+    vQueueDelete(telegram_q);
+    return 0;
+}
+
+TEST(dashboard_commands_request_remote_pages)
+{
+    QueueHandle_t channel_q;
+    QueueHandle_t telegram_q;
+    char text[TELEGRAM_MAX_MSG_LEN];
+
+    reset_state();
+    mock_display_reset();
+    mock_display_set_running(true);
+
+    channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
+    telegram_q = xQueueCreate(4, sizeof(telegram_msg_t));
+    ASSERT(channel_q != NULL);
+    ASSERT(telegram_q != NULL);
+    agent_test_set_queues(channel_q, telegram_q);
+
+    agent_test_process_message("/clima");
+    ASSERT(mock_llm_request_count() == 0);
+    ASSERT(strcmp(mock_display_last_dashboard(), "clima") == 0);
+    ASSERT(mock_display_last_dashboard_ms() == 30000);
+    ASSERT(mock_display_talking_calls() == 0);
+    ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
+    ASSERT(strstr(text, "Clima") != NULL);
+    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
+
+    agent_test_process_message("/cripto");
+    ASSERT(strcmp(mock_display_last_dashboard(), "cripto") == 0);
+    ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
+    ASSERT(strstr(text, "Cripto") != NULL);
+    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
+
+    mock_display_set_running(false);
+    agent_test_process_message("/clima");
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
     ASSERT(strstr(text, "no disponible") != NULL);
     ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
@@ -1022,6 +1064,13 @@ int test_agent_all(void)
 
     printf("  panel_command_shows_status_without_talking... ");
     if (test_panel_command_shows_status_without_talking() == 0) {
+        printf("OK\n");
+    } else {
+        failures++;
+    }
+
+    printf("  dashboard_commands_request_remote_pages... ");
+    if (test_dashboard_commands_request_remote_pages() == 0) {
         printf("OK\n");
     } else {
         failures++;
