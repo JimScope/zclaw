@@ -5,6 +5,12 @@
 #include "display_hw.h"
 #include "esp_log.h"
 #include "ota.h"
+#include "sd_card.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include <stdio.h>
+#include <sys/stat.h>
 
 static const char *TAG = "display";
 
@@ -24,6 +30,22 @@ esp_err_t display_start(void)
     gfx_text(8, 186, "se\xC3\xB1" "al \xC2\xBF" "ma\xC3\xB1" "ana?", GFX_AMBER, GFX_BLACK, 1);
     gfx_text(8, 210, ota_get_version(), GFX_GRAY, GFX_BLACK, 1);
     display_hw_wait_idle();
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    if (sd_card_service(esp_timer_get_time() / 1000)) {
+        struct stat st;
+        const char *path = SD_MOUNT_POINT "/face/neutral.r565";
+        FILE *f = (stat(path, &st) == 0) ? fopen(path, "rb") : NULL;
+        if (f) {
+            int64_t t0 = esp_timer_get_time();
+            esp_err_t ferr = gfx_draw_frame_file(f, (size_t)st.st_size, NULL);
+            display_hw_wait_idle();
+            fclose(f);
+            ESP_LOGI(TAG, "neutral.r565: %s in %lu ms", esp_err_to_name(ferr),
+                     (unsigned long)((esp_timer_get_time() - t0) / 1000));
+        } else {
+            ESP_LOGW(TAG, "%s not found", path);
+        }
+    }
     return ESP_OK;
 #else
     (void)TAG;

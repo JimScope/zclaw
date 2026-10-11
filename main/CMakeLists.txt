@@ -48,6 +48,7 @@ idf_component_register(
         "display_hw.c"
         "display_gfx.c"
         "display.c"
+        "sd_card.c"
         "text_latin1.c"
         "font8x16.c"
         "frame_format.c"
@@ -71,6 +72,9 @@ idf_component_register(
         esp_lcd
         esp_driver_spi
         esp_driver_ledc
+        fatfs
+        sdmmc
+        esp_driver_sdspi
         esp_https_ota
 )
 
