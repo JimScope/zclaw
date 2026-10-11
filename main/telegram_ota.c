@@ -138,6 +138,9 @@ void telegram_ota_handle_document(const char *bot_token,
         return;
     }
 
+    // We restart from inside the poll task, so the next getUpdates that would
+    // confirm this .bin never runs: ack it now or it gets re-applied after boot.
+    telegram_ack_processed_updates();
     telegram_send("OTA aplicada con exito. Reiniciando en 5 segundos...");
     vTaskDelay(pdMS_TO_TICKS(5000));
     esp_restart();

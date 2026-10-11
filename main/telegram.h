@@ -28,4 +28,9 @@ bool telegram_is_configured(void);
 // Get the primary chat ID
 int64_t telegram_get_chat_id(void);
 
+// Confirm already-processed updates with Telegram. Call before esp_restart():
+// the boot-time flush keeps the newest pending update, so an unconfirmed one
+// (e.g. the .bin that triggered an OTA) would be processed again after boot.
+esp_err_t telegram_ack_processed_updates(void);
+
 #endif // TELEGRAM_H

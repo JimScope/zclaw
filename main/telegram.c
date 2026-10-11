@@ -744,6 +744,70 @@ static esp_err_t telegram_flush_pending_updates(void)
     return ESP_OK;
 }
 
+esp_err_t telegram_ack_processed_updates(void)
+{
+    char url[384];
+    char offset_buf[24];
+    telegram_http_ctx_t *ctx = NULL;
+    esp_http_client_handle_t client = NULL;
+    esp_err_t err = ESP_FAIL;
+    int status = -1;
+
+    if (!telegram_is_configured() || s_last_update_id <= 0 || s_last_update_id == INT64_MAX) {
+        return ESP_OK;
+    }
+
+    if (!telegram_format_int64_decimal(s_last_update_id + 1, offset_buf, sizeof(offset_buf))) {
+        ESP_LOGE(TAG, "Failed to format Telegram ack offset");
+        return ESP_FAIL;
+    }
+
+    // Polling with offset confirms every update below it. timeout=0 avoids a
+    // long-poll; a newer update returned here stays pending for the next boot.
+    snprintf(url, sizeof(url), "%s%s/getUpdates?timeout=0&limit=1&offset=%s",
+             TELEGRAM_API_URL, s_bot_token, offset_buf);
+
+    ctx = calloc(1, sizeof(*ctx));
+    if (!ctx) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    if (!http_gate_acquire("telegram_ack", pdMS_TO_TICKS(HTTP_TIMEOUT_MS + 1000))) {
+        ESP_LOGW(TAG, "Ack of processed updates skipped: HTTP gate busy");
+        free(ctx);
+        return ESP_ERR_TIMEOUT;
+    }
+
+    esp_http_client_config_t config = {
+        .url = url,
+        .event_handler = http_event_handler,
+        .user_data = ctx,
+        .timeout_ms = HTTP_TIMEOUT_MS,
+        .crt_bundle_attach = esp_crt_bundle_attach,
+    };
+
+    client = esp_http_client_init(&config);
+    if (client) {
+        err = esp_http_client_perform(client);
+        status = esp_http_client_get_status_code(client);
+        esp_http_client_cleanup(client);
+    }
+    http_gate_release();
+    free(ctx);
+
+    if (err == ESP_OK && status != 200) {
+        err = ESP_FAIL;
+    }
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Ack of processed updates failed: %s (HTTP %d)",
+                 esp_err_to_name(err), status);
+        return err;
+    }
+
+    ESP_LOGI(TAG, "Acked processed updates (offset=%s)", offset_buf);
+    return ESP_OK;
+}
+
 // Calculate exponential backoff delay
 static int get_backoff_delay_ms(void)
 {
