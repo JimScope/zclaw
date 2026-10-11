@@ -27,6 +27,7 @@ typedef enum {
     DISPLAY_EV_THINKING,
     DISPLAY_EV_TALKING,
     DISPLAY_EV_WIFI,
+    DISPLAY_EV_SHOW_STATUS,
 } display_event_type_t;
 
 typedef struct {
@@ -55,6 +56,9 @@ static void apply_event(const display_event_t *ev, int64_t now)
         break;
     case DISPLAY_EV_WIFI:
         face_state_set_wifi(&s_face, ev->value != 0);
+        break;
+    case DISPLAY_EV_SHOW_STATUS:
+        page_rotation_show_status(&s_pages, ev->value, now);
         break;
     }
 }
@@ -151,11 +155,21 @@ void display_notify_wifi(bool connected)
     post(DISPLAY_EV_WIFI, connected ? 1u : 0u);
 }
 
+bool display_request_status(uint32_t duration_ms)
+{
+    if (!s_queue) {
+        return false;
+    }
+    post(DISPLAY_EV_SHOW_STATUS, duration_ms);
+    return true;
+}
+
 #else  // !CONFIG_ZCLAW_DISPLAY_ENABLE
 
 esp_err_t display_start(void) { return ESP_ERR_NOT_SUPPORTED; }
 void display_notify_thinking(bool active) { (void)active; }
 void display_notify_talking(size_t reply_chars) { (void)reply_chars; }
 void display_notify_wifi(bool connected) { (void)connected; }
+bool display_request_status(uint32_t duration_ms) { (void)duration_ms; return false; }
 
 #endif

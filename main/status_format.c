@@ -24,7 +24,9 @@ void status_format_clock(const struct tm *tm, char *buf, size_t len)
         snprintf(buf, len, "--:--");
         return;
     }
-    snprintf(buf, len, "%02d:%02d", tm->tm_hour, tm->tm_min);
+    int hour12 = tm->tm_hour % 12;
+    snprintf(buf, len, "%d:%02d %s", hour12 == 0 ? 12 : hour12, tm->tm_min,
+             tm->tm_hour < 12 ? "AM" : "PM");
 }
 
 void status_format_date(const struct tm *tm, char *buf, size_t len)

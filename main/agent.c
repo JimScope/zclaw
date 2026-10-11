@@ -13,6 +13,8 @@
 #include "nvs_keys.h"
 #include "telegram.h"
 #include "display.h"
+
+#define PANEL_DISPLAY_MS 15000
 #include "cJSON.h"
 #include "esp_timer.h"
 #include "esp_log.h"
@@ -364,6 +366,8 @@ static void handle_start_command(int64_t chat_id)
         "Chat commands:\n"
         "- /help (show this message)\n"
         "- /settings (show status)\n"
+        "- /status, /temp (device status, chip temperature)\n"
+        "- /panel (show the status page on the display for 15 s)\n"
         "- /stop (pause intake)\n"
         "- /resume (resume)\n"
         "\n"
@@ -470,6 +474,17 @@ static void process_message(const char *user_message, message_source_t source, i
                  rssi, llm_get_model(), ota_get_version());
         send_response(status_buf, reply_chat_id);
         metrics_log_request(&metrics, "status_handled");
+        return;
+    }
+
+    if (agent_is_command(user_message, "panel")) {
+        // Ack without display_notify_talking(): the talking face would cover the panel.
+        const char *reply = display_request_status(PANEL_DISPLAY_MS)
+                                ? "Panel en pantalla 15 s."
+                                : "Pantalla no disponible.";
+        queue_channel_response(reply);
+        queue_telegram_response(reply, reply_chat_id);
+        metrics_log_request(&metrics, "panel_handled");
         return;
     }
 

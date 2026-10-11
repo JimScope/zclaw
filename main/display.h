@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "esp_err.h"
 
@@ -15,5 +16,9 @@ esp_err_t display_start(void);
 void display_notify_thinking(bool active);
 void display_notify_talking(size_t reply_chars);
 void display_notify_wifi(bool connected);
+
+// Show the status page for duration_ms (e.g. /panel). False when the display
+// is disabled or not running.
+bool display_request_status(uint32_t duration_ms);
 
 #endif // DISPLAY_API_H

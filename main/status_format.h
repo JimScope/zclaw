@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <time.h>
 
-// "HH:MM", or "--:--" while the clock is not synced (year < 2024).
+// 12-hour clock ("2:05 PM", "12:00 AM"), or "--:--" while not synced (year < 2024).
 void status_format_clock(const struct tm *tm, char *buf, size_t len);
 // Spanish short date, e.g. "dom 11 oct" (UTF-8), or "--" while not synced.
 void status_format_date(const struct tm *tm, char *buf, size_t len);

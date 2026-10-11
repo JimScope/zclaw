@@ -40,7 +40,17 @@ TEST(clock_and_date_when_synced)
     char buf[24];
     struct tm tm = make_tm(2026, 9, 11, 0, 14, 5);
     status_format_clock(&tm, buf, sizeof(buf));
-    ASSERT_STR_EQ(buf, "14:05");
+    ASSERT_STR_EQ(buf, "2:05 PM");
+    tm = make_tm(2026, 9, 11, 0, 0, 0);
+    status_format_clock(&tm, buf, sizeof(buf));
+    ASSERT_STR_EQ(buf, "12:00 AM");
+    tm = make_tm(2026, 9, 11, 0, 12, 30);
+    status_format_clock(&tm, buf, sizeof(buf));
+    ASSERT_STR_EQ(buf, "12:30 PM");
+    tm = make_tm(2026, 9, 11, 0, 9, 7);
+    status_format_clock(&tm, buf, sizeof(buf));
+    ASSERT_STR_EQ(buf, "9:07 AM");
+    tm = make_tm(2026, 9, 11, 0, 14, 5);
     status_format_date(&tm, buf, sizeof(buf));
     ASSERT_STR_EQ(buf, "dom 11 oct");
     tm = make_tm(2026, 0, 2, 3, 0, 0);

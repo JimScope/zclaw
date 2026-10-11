@@ -9,6 +9,7 @@
 #include "config.h"
 #include "local_admin.h"
 #include "messages.h"
+#include "mock_display.h"
 #include "mock_freertos.h"
 #include "mock_llm.h"
 #include "mock_memory.h"
@@ -340,6 +341,42 @@ TEST(stop_and_resume_pause_message_processing)
     ASSERT_STR_EQ(text, "normal response");
     ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
     ASSERT_STR_EQ(text, "normal response");
+
+    vQueueDelete(channel_q);
+    vQueueDelete(telegram_q);
+    return 0;
+}
+
+TEST(panel_command_shows_status_without_talking)
+{
+    QueueHandle_t channel_q;
+    QueueHandle_t telegram_q;
+    char text[TELEGRAM_MAX_MSG_LEN];
+
+    reset_state();
+    mock_display_reset();
+
+    channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
+    telegram_q = xQueueCreate(4, sizeof(telegram_msg_t));
+    ASSERT(channel_q != NULL);
+    ASSERT(telegram_q != NULL);
+    agent_test_set_queues(channel_q, telegram_q);
+
+    mock_display_set_running(true);
+    agent_test_process_message("/panel");
+    ASSERT(mock_llm_request_count() == 0);
+    ASSERT(mock_display_last_status_ms() == 15000);
+    ASSERT(mock_display_talking_calls() == 0);
+    ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
+    ASSERT(strstr(text, "Panel") != NULL);
+    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
+    ASSERT(strstr(text, "Panel") != NULL);
+
+    mock_display_set_running(false);
+    agent_test_process_message("/panel");
+    ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
+    ASSERT(strstr(text, "no disponible") != NULL);
+    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
 
     vQueueDelete(channel_q);
     vQueueDelete(telegram_q);
@@ -978,6 +1015,13 @@ int test_agent_all(void)
 
     printf("  help_and_settings_commands_bypass_llm... ");
     if (test_help_and_settings_commands_bypass_llm() == 0) {
+        printf("OK\n");
+    } else {
+        failures++;
+    }
+
+    printf("  panel_command_shows_status_without_talking... ");
+    if (test_panel_command_shows_status_without_talking() == 0) {
         printf("OK\n");
     } else {
         failures++;

@@ -218,9 +218,9 @@ menu "zclaw Configuration"
             depends on ZCLAW_DISPLAY_ENABLE
 
         config ZCLAW_STATUS_SECONDS
-            int "Seconds on the status page (0 = never)"
+            int "Seconds on the status page in the rotation (0 = only on /panel)"
             range 0 600
-            default 5
+            default 0
             depends on ZCLAW_DISPLAY_ENABLE
 
         config ZCLAW_SD_CS_GPIO

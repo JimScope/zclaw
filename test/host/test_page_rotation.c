@@ -48,6 +48,42 @@ TEST(zero_status_time_keeps_face)
     return 0;
 }
 
+TEST(requested_status_shows_for_duration_then_face)
+{
+    page_rotation_t r;
+    page_rotation_init(&r, 10000, 0, 0);
+    page_rotation_show_status(&r, 15000, 1000);
+    ASSERT(page_rotation_update(&r, false, 1000) == PAGE_STATUS);
+    ASSERT(page_rotation_update(&r, false, 15999) == PAGE_STATUS);
+    ASSERT(page_rotation_update(&r, false, 16000) == PAGE_FACE);
+    ASSERT(page_rotation_update(&r, false, 100000) == PAGE_FACE);
+    return 0;
+}
+
+TEST(activity_cancels_requested_status)
+{
+    page_rotation_t r;
+    page_rotation_init(&r, 10000, 0, 0);
+    page_rotation_show_status(&r, 15000, 0);
+    ASSERT(page_rotation_update(&r, false, 1000) == PAGE_STATUS);
+    ASSERT(page_rotation_update(&r, true, 5000) == PAGE_FACE);
+    ASSERT(page_rotation_update(&r, false, 6000) == PAGE_FACE);
+    return 0;
+}
+
+TEST(requested_status_with_rotation_resumes_full_face_period)
+{
+    page_rotation_t r;
+    page_rotation_init(&r, 10000, 5000, 0);
+    page_rotation_show_status(&r, 15000, 2000);
+    ASSERT(page_rotation_update(&r, false, 2000) == PAGE_STATUS);
+    ASSERT(page_rotation_update(&r, false, 16999) == PAGE_STATUS);
+    ASSERT(page_rotation_update(&r, false, 17000) == PAGE_FACE);
+    ASSERT(page_rotation_update(&r, false, 26999) == PAGE_FACE);
+    ASSERT(page_rotation_update(&r, false, 27000) == PAGE_STATUS);
+    return 0;
+}
+
 int test_page_rotation_all(void)
 {
     int failures = 0;
@@ -62,6 +98,9 @@ int test_page_rotation_all(void)
     RUN(rotates_face_then_status);
     RUN(activity_forces_face_and_pauses_rotation);
     RUN(zero_status_time_keeps_face);
+    RUN(requested_status_shows_for_duration_then_face);
+    RUN(activity_cancels_requested_status);
+    RUN(requested_status_with_rotation_resumes_full_face_period);
 
 #undef RUN
     return failures;
