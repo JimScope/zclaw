@@ -109,6 +109,48 @@ class FaceAssetsTest(unittest.TestCase):
         self.assertEqual(self.run_tool(), 0)
         self.assertTrue((self.out / "contact.png").exists())
 
+    def test_fit_controls_vertical_crop(self):
+        img = portrait()
+        ImageDraw.Draw(img).rectangle((0, 0, img.size[0], 12), fill=(255, 0, 0))
+        img.save(self.src / "neutral.png")
+
+        def top_is_red() -> bool:
+            *_, pixels, _ = read_frame(self.out / "neutral.r565")
+            red = (pixels[:3, 60:180] >> 11) & 0x1F
+            return bool((red > 25).mean() > 0.5)
+
+        self.assertEqual(self.run_tool("--fit", "1"), 0)
+        self.assertTrue(top_is_red(), "fit=1 must keep the whole height")
+        self.assertEqual(self.run_tool("--fit", "0"), 0)
+        self.assertFalse(top_is_red(), "fit=0 crops a square of the width")
+
+    def test_fit_defaults_to_whole_photo(self):
+        img = portrait()
+        ImageDraw.Draw(img).rectangle((0, 0, img.size[0], 12), fill=(255, 0, 0))
+        img.save(self.src / "neutral.png")
+        self.assertEqual(self.run_tool(), 0)
+        *_, pixels, _ = read_frame(self.out / "neutral.r565")
+        self.assertTrue((((pixels[:3, 60:180] >> 11) & 0x1F) > 25).mean() > 0.5)
+
+    def test_shift_extends_edges_instead_of_flat_fill(self):
+        grad = np.tile(np.arange(20, dtype=np.uint8) * 10, (6, 1))
+        img = Image.fromarray(np.stack([grad] * 3, axis=2))
+        right = np.asarray(self.tool.shift_edge(img, 3, 0))[..., 0]
+        np.testing.assert_array_equal(right[:, :4], np.full((6, 4), 0))
+        np.testing.assert_array_equal(right[:, 4], np.full(6, 10))
+        left = np.asarray(self.tool.shift_edge(img, -3, 0))[..., 0]
+        np.testing.assert_array_equal(left[:, -4:], np.full((6, 4), 190))
+        down = np.asarray(self.tool.shift_edge(img, 0, 2))[..., 0]
+        np.testing.assert_array_equal(down[0], grad[0])
+        self.assertEqual(self.tool.shift_edge(img, 5, -2).size, img.size)
+
+    def test_canvas_fit_extends_short_images(self):
+        img = Image.fromarray(np.full((4, 5, 3), 77, dtype=np.uint8))
+        fitted = self.tool.fit_canvas(img, (7, 6))
+        self.assertEqual(fitted.size, (7, 6))
+        self.assertTrue((np.asarray(fitted) == 77).all())
+        self.assertEqual(self.tool.fit_canvas(img, (3, 2)).size, (3, 2))
+
 
 if __name__ == "__main__":
     unittest.main()

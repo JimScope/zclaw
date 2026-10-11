@@ -20,6 +20,8 @@ review `build/face/contact.png`.
 
 Guidelines: same base photo for all expressions, only the expression edited
 (head, framing, background and light unchanged); square-ish close-up with the
-face filling ~70% of the frame; plain background. If the automatic eye/mouth
+face filling ~70% of the frame; plain background. By default the whole photo is kept and the
+sides are filled by extending its edges (`--fit 1`); `--fit 0` crops a square
+of the width instead (bigger face, cut top/bottom). If the automatic eye/mouth
 detection picks the wrong area, pass `--eyes X,Y,W,H` / `--mouth X,Y,W,H`
 (coordinates in the 240×240 output).

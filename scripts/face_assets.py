@@ -10,7 +10,7 @@ contact sheet for review. eyes_closed/speaking become small patches drawn
 over neutral, so blinking and talking never shimmer.
 
     ~/.venvs/zclaw-face/bin/python scripts/face_assets.py \\
-        --input assets/face --output build/face
+        --input assets/face --output build/face [--fit 1]
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ MAX_VARIANTS = 8
 EXTENSIONS = (".png", ".jpg", ".jpeg")
 FLAG_PATCH = 0x0001
 BAND_PAD = 10
+PAD_BLUR = 12  # blur radius for the extended edges when the photo does not fill the square
 FEATHER = 6
 # Search windows for automatic band detection, as fractions of the frame.
 BAND_WINDOWS = {"eyes": (0.25, 0.60), "mouth": (0.50, 0.85)}
@@ -54,9 +55,23 @@ def output_name(base: str, variant: int) -> str:
     return f"{base}.r565" if variant == 1 else f"{base}_{variant}.r565"
 
 
-def border_color(img: Image.Image) -> tuple[int, int, int]:
-    top = np.asarray(img)[:5].reshape(-1, 3)
-    return tuple(int(v) for v in np.median(top, axis=0))
+def fit_canvas(img: Image.Image, size: tuple[int, int]) -> Image.Image:
+    """Crop or extend img (anchored top-left) to size, extending edges instead of a flat fill."""
+    w, h = size
+    arr = np.asarray(img)[:h, :w]
+    pad_y, pad_x = h - arr.shape[0], w - arr.shape[1]
+    if pad_y or pad_x:
+        arr = np.pad(arr, ((0, pad_y), (0, pad_x), (0, 0)), mode="edge")
+    return Image.fromarray(arr)
+
+
+def shift_edge(img: Image.Image, dx: int, dy: int) -> Image.Image:
+    """Translate img by (dx, dy), filling the uncovered side by extending the edge."""
+    arr = np.asarray(img)
+    h, w = arr.shape[:2]
+    top, bottom, left, right = max(dy, 0), max(-dy, 0), max(dx, 0), max(-dx, 0)
+    padded = np.pad(arr, ((top, bottom), (left, right), (0, 0)), mode="edge")
+    return Image.fromarray(padded[bottom:bottom + h, right:right + w])
 
 
 def blurred_gray(img: Image.Image) -> np.ndarray:
@@ -80,23 +95,46 @@ def phase_shift(ref: np.ndarray, moving: np.ndarray) -> tuple[int, int, float]:
 
 
 def align_to(ref: Image.Image, img: Image.Image, min_peak: float, name: str) -> Image.Image:
-    fill = border_color(ref)
-    canvas = Image.new("RGB", ref.size, fill)
-    canvas.paste(img, (0, 0))
+    canvas = fit_canvas(img, ref.size)
     dx, dy, peak = phase_shift(blurred_gray(ref), blurred_gray(canvas))
     if peak < min_peak:
         print(f"warning: {name}: alignment not confident (peak {peak:.3f}), using as is")
         return canvas
-    return canvas.transform(canvas.size, Image.AFFINE, (1, 0, -dx, 0, 1, -dy), fillcolor=fill)
+    return shift_edge(canvas, dx, dy)
 
 
-def square_crop(img: Image.Image, size: int, center_y: float) -> Image.Image:
+def square_frame(img: Image.Image, size: int, center_y: float, fit: float) -> Image.Image:
+    """Square frame of the photo resized to size x size.
+
+    fit 0 crops a square of the short side (fills the screen, cuts the long
+    side); fit 1 keeps the whole photo and extends its edges to fill the
+    square. Values in between do part of each. center_y places a vertical crop.
+    """
     w, h = img.size
-    side = min(w, h)
-    left = (w - side) // 2
-    top = int(round(h * center_y - side / 2))
-    top = max(0, min(top, h - side))
-    return img.crop((left, top, left + side, top + side)).resize((size, size), Image.LANCZOS)
+    short, long_ = min(w, h), max(w, h)
+    side = int(round(short + (long_ - short) * min(max(fit, 0.0), 1.0)))
+
+    if h > side:
+        top = int(round(h * center_y - side / 2))
+        top = max(0, min(top, h - side))
+        img = img.crop((0, top, w, top + side))
+        h = side
+    if w > side:
+        left = (w - side) // 2
+        img = img.crop((left, 0, left + side, h))
+        w = side
+
+    pad_x, pad_y = side - w, side - h
+    if pad_x or pad_y:
+        left, top = pad_x // 2, pad_y // 2
+        arr = np.asarray(img)
+        extended = Image.fromarray(np.pad(arr, ((top, pad_y - top), (left, pad_x - left), (0, 0)),
+                                          mode="edge"))
+        softened = extended.filter(ImageFilter.GaussianBlur(PAD_BLUR))
+        mask = Image.new("L", extended.size, 255)
+        ImageDraw.Draw(mask).rectangle((left, top, left + w - 1, top + h - 1), fill=0)
+        img = Image.composite(softened, extended, mask.filter(ImageFilter.GaussianBlur(4)))
+    return img.resize((size, size), Image.LANCZOS)
 
 
 def detect_band(base: Image.Image, frame: Image.Image, region: str) -> tuple[int, int, int, int]:
@@ -173,6 +211,8 @@ def run(argv: list[str]) -> int:
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--size", type=int, default=240)
+    parser.add_argument("--fit", type=float, default=1.0,
+                        help="0 = crop to fill the screen, 1 = whole photo with extended edges")
     parser.add_argument("--center-y", type=float, default=0.5,
                         help="vertical crop centre as a fraction of the image height")
     parser.add_argument("--eyes", type=parse_box, help="eye band X,Y,W,H (overrides detection)")
@@ -189,7 +229,7 @@ def run(argv: list[str]) -> int:
 
     args.output.mkdir(parents=True, exist_ok=True)
     neutral_src = Image.open(inputs["neutral"][0][1]).convert("RGB")
-    neutral = square_crop(neutral_src, args.size, args.center_y)
+    neutral = square_frame(neutral_src, args.size, args.center_y, args.fit)
     overrides = {"eyes": args.eyes, "mouth": args.mouth}
     tiles: list[tuple[str, Image.Image]] = []
 
@@ -202,7 +242,7 @@ def run(argv: list[str]) -> int:
             else:
                 if base in ALIGNED_FRAMES:
                     src = align_to(neutral_src, src, args.min_peak, name)
-                frame = square_crop(src, args.size, args.center_y)
+                frame = square_frame(src, args.size, args.center_y, args.fit)
 
             if base in PATCH_FRAMES:
                 region = PATCH_FRAMES[base]
