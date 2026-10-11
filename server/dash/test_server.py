@@ -131,7 +131,8 @@ class ImageTest(unittest.TestCase):
         return self.files[url]
 
     def make(self):
-        return server.Dash(FakeFetch(), clock=self.clock, search=self.search, fetch_bytes=self.fetch_bytes)
+        return server.Dash(FakeFetch(), clock=self.clock, search=self.search, fetch_bytes=self.fetch_bytes,
+                           is_public=lambda url: True)
 
     def test_query_skips_broken_candidates_and_caches(self):
         dash_service = self.make()
@@ -164,6 +165,58 @@ class ImageTest(unittest.TestCase):
             self.assertEqual(resp.status, 200)
             self.assertEqual(resp.getheader("X-Dash-Error"), "1")
             conn.request("GET", "/image.jpg")
+            resp = conn.getresponse()
+            resp.read()
+            self.assertEqual(resp.status, 400)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
+
+class SsrfTest(unittest.TestCase):
+    def resolver(self, mapping):
+        def getaddrinfo(host, *args, **kwargs):
+            if host not in mapping:
+                import socket
+                raise socket.gaierror("unknown")
+            return [(2, 1, 6, "", (ip, 0)) for ip in mapping[host]]
+        return getaddrinfo
+
+    def test_public_url_rules(self):
+        from unittest import mock
+        fake = self.resolver({"cdn.example": ["93.184.216.34"], "localhost": ["127.0.0.1"],
+                              "mixed.example": ["93.184.216.34", "10.0.0.5"]})
+        with mock.patch("socket.getaddrinfo", fake):
+            self.assertTrue(server.public_url("https://cdn.example/cover.jpg"))
+            self.assertFalse(server.public_url("http://localhost:9001/x"))
+            self.assertFalse(server.public_url("http://127.0.0.1:8777/"))
+            self.assertFalse(server.public_url("http://169.254.169.254/latest/meta-data/"))
+            self.assertFalse(server.public_url("http://[::1]/"))
+            self.assertFalse(server.public_url("http://mixed.example/a.png"))
+            self.assertFalse(server.public_url("ftp://cdn.example/a.png"))
+            self.assertFalse(server.public_url("http://nowhere.invalid/a.png"))
+
+    def test_private_candidates_are_never_fetched(self):
+        fetched = []
+
+        def fetch(url):
+            fetched.append(url)
+            return png_bytes()
+
+        dash_service = server.Dash(FakeFetch(), clock=FakeClock(), search=lambda q: ["http://127.0.0.1:9001/x"],
+                                   fetch_bytes=fetch, is_public=lambda url: "127.0.0.1" not in url)
+        jpeg, ok = dash_service.image(url="http://127.0.0.1:9001/secret")
+        self.assertFalse(ok)
+        jpeg, ok = dash_service.image(query="anything")
+        self.assertFalse(ok)
+        self.assertEqual(fetched, [])
+
+    def test_bad_scheme_url_param_is_rejected_even_with_query(self):
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.make_handler(server.Dash(FakeFetch())))
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            conn = http.client.HTTPConnection("127.0.0.1", httpd.server_address[1], timeout=10)
+            conn.request("GET", "/image.jpg?q=x&url=file:///etc/passwd")
             resp = conn.getresponse()
             resp.read()
             self.assertEqual(resp.status, 400)

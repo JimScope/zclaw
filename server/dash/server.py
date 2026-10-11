@@ -16,11 +16,14 @@ from __future__ import annotations
 import datetime as dt
 import html
 import io
+import ipaddress
 import json
 import re
+import socket
 import os
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -50,9 +53,43 @@ def fetch_json(url: str) -> dict:
         return json.load(resp)
 
 
+def public_url(url: str) -> bool:
+    """True when url is http(s) and every address its host resolves to is public.
+
+    Stops /image.jpg?url= (and search results) from making this server fetch
+    loopback, private, link-local (cloud metadata) or other internal addresses.
+    """
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return False
+    try:
+        port = parts.port or (443 if parts.scheme == "https" else 80)
+        infos = socket.getaddrinfo(parts.hostname, port, proto=socket.IPPROTO_TCP)
+    except (socket.gaierror, ValueError, UnicodeError):
+        return False
+    try:
+        return bool(infos) and all(ipaddress.ip_address(info[4][0]).is_global for info in infos)
+    except ValueError:
+        return False
+
+
+class _CheckedRedirects(urllib.request.HTTPRedirectHandler):
+    """Re-validate every redirect hop with public_url()."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not public_url(newurl):
+            raise urllib.error.URLError(f"redirect to non-public address blocked: {newurl}")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_image_opener = urllib.request.build_opener(_CheckedRedirects())
+
+
 def fetch_bytes(url: str) -> bytes:
+    if not public_url(url):
+        raise ValueError("non-public address")
     req = urllib.request.Request(url, headers={"User-Agent": BROWSER_UA})
-    with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT_S) as resp:
+    with _image_opener.open(req, timeout=FETCH_TIMEOUT_S) as resp:
         data = resp.read(IMAGE_MAX_BYTES + 1)
     if len(data) > IMAGE_MAX_BYTES:
         raise ValueError("image too large")
@@ -93,11 +130,13 @@ def search_images(query: str) -> list[str]:
 class Dash:
     def __init__(self, fetch: Callable[[str], dict], clock: Callable[[], float] = time.time,
                  search: Callable[[str], list[str]] = search_images,
-                 fetch_bytes: Callable[[str], bytes] = fetch_bytes):
+                 fetch_bytes: Callable[[str], bytes] = fetch_bytes,
+                 is_public: Callable[[str], bool] = public_url):
         self._fetch = fetch
         self._clock = clock
         self._search = search
         self._fetch_bytes = fetch_bytes
+        self._is_public = is_public
         self._cache: dict[str, tuple[float, bytes]] = {}
         self._lock = threading.Lock()
 
@@ -148,6 +187,8 @@ class Dash:
         def build() -> bytes:
             candidates = [url] if url else self._search(query or "")[:IMAGE_CANDIDATES]
             for candidate in candidates:
+                if not self._is_public(candidate):
+                    continue
                 try:
                     picture = Image.open(io.BytesIO(self._fetch_bytes(candidate)))
                     picture.load()
@@ -196,8 +237,8 @@ def make_handler(service: Dash) -> type[BaseHTTPRequestHandler]:
             elif url.path == "/image.jpg":
                 q = (query.get("q") or [""])[0].strip()
                 src = (query.get("url") or [""])[0].strip()
-                if not q and not src.startswith(("http://", "https://")):
-                    self._send(400, b"q or url required", "text/plain")
+                if (src and not src.startswith(("http://", "https://"))) or (not q and not src):
+                    self._send(400, b"q or http(s) url required", "text/plain")
                     return
                 jpeg, ok = service.image(query=q or None, url=src or None)
                 self._send(200, jpeg, "image/jpeg", error=not ok)
