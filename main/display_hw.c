@@ -19,6 +19,9 @@
 #define DISPLAY_PCLK_HZ   (40 * 1000 * 1000)
 #define BACKLIGHT_TIMER   LEDC_TIMER_0
 #define BACKLIGHT_CHANNEL LEDC_CHANNEL_0
+// 80 MHz / 1024 steps: far above the audio band. At 5 kHz the PWM ripple on 3V3
+// reached the microphone as a 5 kHz tone 20 dB over the room noise.
+#define BACKLIGHT_PWM_HZ  78125
 
 static const char *TAG = "display_hw";
 static esp_lcd_panel_io_handle_t s_io = NULL;
@@ -46,10 +49,13 @@ static void backlight_init(void)
         .speed_mode = LEDC_LOW_SPEED_MODE,
         .duty_resolution = LEDC_TIMER_10_BIT,
         .timer_num = BACKLIGHT_TIMER,
-        .freq_hz = 5000,
+        .freq_hz = BACKLIGHT_PWM_HZ,
         .clk_cfg = LEDC_AUTO_CLK,
     };
-    ledc_timer_config(&timer);
+    esp_err_t err = ledc_timer_config(&timer);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Backlight PWM at %d Hz failed: %s", BACKLIGHT_PWM_HZ, esp_err_to_name(err));
+    }
 
     ledc_channel_config_t channel = {
         .gpio_num = CONFIG_ZCLAW_DISPLAY_BL_GPIO,
