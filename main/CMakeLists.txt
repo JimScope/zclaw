@@ -22,6 +22,7 @@ idf_component_register(
         "backup_name.c"
         "task_log.c"
         "task_log_format.c"
+        "web_page.c"
         "tools_tsens.c"
         "tools_memory.c"
         "tools_cron.c"

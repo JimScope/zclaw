@@ -76,6 +76,7 @@ run_host_tests() {
         test_web_ota_policy.c \
         test_task_log_format.c \
         test_sd_access.c \
+        test_web_page.c \
         test_voice_audio.c \
         test_voice_detect.c \
         test_stt_reply.c \
@@ -128,6 +129,7 @@ run_host_tests() {
         ../../main/web_ota_policy.c \
         ../../main/task_log_format.c \
         ../../main/sd_access.c \
+        ../../main/web_page.c \
         ../../main/adpcm.c \
         ../../main/audio_dsp.c \
         ../../main/audio_level.c \

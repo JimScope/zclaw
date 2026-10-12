@@ -4,6 +4,8 @@
 #include "config.h"
 #include "http_gate.h"
 #include "memory.h"
+#include "sd_card.h"
+#include "web_page.h"
 #include "esp_crt_bundle.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
@@ -12,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #define NET_TOOL_TIMEOUT_MS 15000
 #define NET_TOOL_GATE_MS    12000
@@ -23,13 +26,22 @@ typedef struct {
     char *buf;
     size_t len;
     size_t max;
+    FILE *file;     // when set, the body goes to the file (up to max bytes)
 } net_resp_ctx_t;
 
 static esp_err_t net_http_event(esp_http_client_event_t *evt)
 {
     net_resp_ctx_t *ctx = (net_resp_ctx_t *)evt->user_data;
-
-    if (evt->event_id == HTTP_EVENT_ON_DATA && ctx && ctx->buf && evt->data_len > 0) {
+    if (evt->event_id != HTTP_EVENT_ON_DATA || !ctx || evt->data_len <= 0) {
+        return ESP_OK;
+    }
+    if (ctx->file) {
+        size_t space = ctx->max - ctx->len;
+        size_t n = ((size_t)evt->data_len < space) ? (size_t)evt->data_len : space;
+        if (n > 0 && fwrite(evt->data, 1, n, ctx->file) == n) {
+            ctx->len += n;
+        }
+    } else if (ctx->buf) {
         size_t space = ctx->max - 1 - ctx->len;
         size_t n = ((size_t)evt->data_len < space) ? (size_t)evt->data_len : space;
         if (n > 0) {
@@ -41,22 +53,18 @@ static esp_err_t net_http_event(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
-// Returns HTTP status, or -1 on transport error. Body (truncated) lands in out.
-static int net_http_request(const char *url,
+// Returns HTTP status, or -1 on transport error. The body goes to ctx (buffer or file).
+static int net_http_perform(const char *url,
                             esp_http_client_method_t method,
                             const char *header_key,
                             const char *header_value,
                             const char *post_body,
-                            char *out,
-                            size_t out_max)
+                            net_resp_ctx_t *ctx)
 {
-    net_resp_ctx_t ctx = { .buf = out, .len = 0, .max = out_max };
-    out[0] = '\0';
-
     esp_http_client_config_t config = {
         .url = url,
         .event_handler = net_http_event,
-        .user_data = &ctx,
+        .user_data = ctx,
         .timeout_ms = NET_TOOL_TIMEOUT_MS,
         .crt_bundle_attach = esp_crt_bundle_attach,
     };
@@ -81,6 +89,26 @@ static int net_http_request(const char *url,
         ESP_LOGW(TAG, "HTTP request failed: %s", esp_err_to_name(err));
     }
     esp_http_client_cleanup(client);
+    return status;
+}
+
+// Body (truncated) lands in out.
+static int net_http_request(const char *url, esp_http_client_method_t method,
+                            const char *header_key, const char *header_value,
+                            const char *post_body, char *out, size_t out_max)
+{
+    net_resp_ctx_t ctx = { .buf = out, .len = 0, .max = out_max, .file = NULL };
+    out[0] = '\0';
+    return net_http_perform(url, method, header_key, header_value, post_body, &ctx);
+}
+
+// GET into an open file; *written gets the body bytes kept (at most max).
+static int net_http_get_to_file(const char *url, const char *header_key, const char *header_value,
+                                FILE *file, size_t max, size_t *written)
+{
+    net_resp_ctx_t ctx = { .buf = NULL, .len = 0, .max = max, .file = file };
+    int status = net_http_perform(url, HTTP_METHOD_GET, header_key, header_value, NULL, &ctx);
+    *written = ctx.len;
     return status;
 }
 
@@ -234,24 +262,79 @@ bool tools_web_search_handler(const cJSON *input, char *result, size_t result_le
     return true;
 }
 
-// read_web: fetch a page as clean text via the self-hosted reader on the VPS
-// and hand it to the model in ~450-byte pages. The full text is
-// cached statically so paging through a long article costs one download.
-#define READ_WEB_CACHE_MAX 4096
-#define READ_WEB_PAGE_SIZE 450
+// read_web: fetch a page as clean text via the self-hosted reader on the VPS and
+// hand it to the model in WEB_PAGE_SIZE pages. With an SD card the whole text
+// (up to 64 KB) is kept in /sdcard/web, so paging costs one download; without
+// one, every call downloads up to 4 KB into the heap and frees it.
+#define READ_WEB_SD_MAX   (64 * 1024)
+#define READ_WEB_RAM_MAX  4096
+#define READ_WEB_DIR      SD_MOUNT_POINT "/web"
+#define READ_WEB_TEXT     READ_WEB_DIR "/page.txt"
+#define READ_WEB_URL      READ_WEB_DIR "/url.txt"
 
-static char s_web_cache[READ_WEB_CACHE_MAX];
-static char s_web_cache_url[192];
-static size_t s_web_cache_len;
+static void reader_url_for(const char *url, char *out, size_t out_len)
+{
+    snprintf(out, out_len, "https://bolita-cubana.duckdns.org/reader/%s", url);
+}
+
+static bool sd_cached_url_is(const char *url)
+{
+    char cached[256] = {0};
+    FILE *f = fopen(READ_WEB_URL, "r");
+    if (!f) {
+        return false;
+    }
+    size_t n = fread(cached, 1, sizeof(cached) - 1, f);
+    fclose(f);
+    cached[n] = '\0';
+    return strcmp(cached, url) == 0;
+}
+
+// Fetches into the SD cache. Returns the HTTP status (-1 on transport or file error).
+static int sd_fetch(const char *url, size_t *text_len)
+{
+    char reader_url[256];
+    reader_url_for(url, reader_url, sizeof(reader_url));
+    mkdir(READ_WEB_DIR, 0755);  // EEXIST is fine
+    remove(READ_WEB_URL);       // no stale URL if the download fails
+    FILE *f = fopen(READ_WEB_TEXT, "w");
+    if (!f) {
+        return -1;
+    }
+    int status = net_http_get_to_file(reader_url, "User-Agent", "Mozilla/5.0 (zclaw-esp32)",
+                                      f, READ_WEB_SD_MAX, text_len);
+    fclose(f);
+    if (status >= 200 && status < 300) {
+        FILE *u = fopen(READ_WEB_URL, "w");
+        if (u) {
+            fputs(url, u);
+            fclose(u);
+        }
+    }
+    return status;
+}
+
+static size_t sd_text_len(void)
+{
+    struct stat st;
+    return stat(READ_WEB_TEXT, &st) == 0 ? (size_t)st.st_size : 0;
+}
+
+static void format_page(const web_page_slice_t *s, const char *text, char *result, size_t result_len)
+{
+    if (s->page < s->total_pages) {
+        snprintf(result, result_len, "[pag %d/%d, pide page=%d para seguir]\n%s",
+                 s->page, s->total_pages, s->page + 1, text);
+    } else {
+        snprintf(result, result_len, "[pag %d/%d, fin]\n%s", s->page, s->total_pages, text);
+    }
+}
 
 bool tools_read_web_handler(const cJSON *input, char *result, size_t result_len)
 {
     const cJSON *url = cJSON_GetObjectItem(input, "url");
     const cJSON *page_json = cJSON_GetObjectItem(input, "page");
     int page = (page_json && cJSON_IsNumber(page_json)) ? page_json->valueint : 1;
-    if (page < 1) {
-        page = 1;
-    }
 
     if (!url || !cJSON_IsString(url) ||
         (strncmp(url->valuestring, "http://", 7) != 0 &&
@@ -260,63 +343,71 @@ bool tools_read_web_handler(const cJSON *input, char *result, size_t result_len)
         return false;
     }
 
-    // Serve from cache when re-reading the same URL (paging); otherwise fetch.
-    bool cached = (s_web_cache_len > 0 &&
-                   strcmp(s_web_cache_url, url->valuestring) == 0);
-    if (!cached) {
-        char reader_url[256];
-        // Self-hosted trafilatura reader on the VPS.
-        snprintf(reader_url, sizeof(reader_url),
-                 "https://bolita-cubana.duckdns.org/reader/%s", url->valuestring);
+    char chunk[WEB_PAGE_SIZE + 1];
+    web_page_slice_t s;
+    int status = 200;
 
+    if (sd_card_begin()) {
+        size_t len = 0;
+        if (sd_cached_url_is(url->valuestring)) {
+            len = sd_text_len();
+        } else {
+            if (!http_gate_acquire("read_web", pdMS_TO_TICKS(NET_TOOL_GATE_MS))) {
+                sd_card_end();
+                snprintf(result, result_len, "Error: HTTP busy, try again");
+                return false;
+            }
+            status = sd_fetch(url->valuestring, &len);
+            http_gate_release();
+        }
+        s = web_page_slice(len, page, WEB_PAGE_SIZE);
+        chunk[0] = '\0';
+        if (status >= 200 && status < 300 && !s.past_end && s.len > 0) {
+            FILE *f = fopen(READ_WEB_TEXT, "r");
+            size_t n = 0;
+            if (f) {
+                fseek(f, (long)s.start, SEEK_SET);
+                n = fread(chunk, 1, s.len, f);
+                fclose(f);
+            }
+            chunk[n] = '\0';
+        }
+        sd_card_end();
+    } else {
+        char *text = malloc(READ_WEB_RAM_MAX);
+        if (!text) {
+            snprintf(result, result_len, "Error: out of memory for read_web");
+            return false;
+        }
+        char reader_url[256];
+        reader_url_for(url->valuestring, reader_url, sizeof(reader_url));
         if (!http_gate_acquire("read_web", pdMS_TO_TICKS(NET_TOOL_GATE_MS))) {
+            free(text);
             snprintf(result, result_len, "Error: HTTP busy, try again");
             return false;
         }
-        int status = net_http_request(reader_url, HTTP_METHOD_GET,
-                                      "User-Agent", "Mozilla/5.0 (zclaw-esp32)",
-                                      NULL, s_web_cache, sizeof(s_web_cache));
+        status = net_http_request(reader_url, HTTP_METHOD_GET, "User-Agent",
+                                  "Mozilla/5.0 (zclaw-esp32)", NULL, text, READ_WEB_RAM_MAX);
         http_gate_release();
-
-        if (status < 0) {
-            s_web_cache_len = 0;
-            snprintf(result, result_len, "Error: reader request failed (network)");
-            return false;
-        }
-        if (status < 200 || status >= 300) {
-            s_web_cache_len = 0;
-            snprintf(result, result_len, "Error: reader HTTP %d", status);
-            return false;
-        }
-        s_web_cache_len = strlen(s_web_cache);
-        strncpy(s_web_cache_url, url->valuestring, sizeof(s_web_cache_url) - 1);
-        s_web_cache_url[sizeof(s_web_cache_url) - 1] = '\0';
+        s = web_page_slice(status >= 200 && status < 300 ? strlen(text) : 0, page, WEB_PAGE_SIZE);
+        memcpy(chunk, text + s.start, s.len);
+        chunk[s.len] = '\0';
+        free(text);
     }
 
-    int total_pages = (int)((s_web_cache_len + READ_WEB_PAGE_SIZE - 1) / READ_WEB_PAGE_SIZE);
-    if (total_pages < 1) {
-        total_pages = 1;
+    if (status < 0) {
+        snprintf(result, result_len, "Error: reader request failed (network)");
+        return false;
     }
-    if (page > total_pages) {
-        snprintf(result, result_len, "Fin del contenido (%d paginas en total)", total_pages);
+    if (status < 200 || status >= 300) {
+        snprintf(result, result_len, "Error: reader HTTP %d", status);
+        return false;
+    }
+    if (s.past_end) {
+        snprintf(result, result_len, "Fin del contenido (%d paginas en total)", s.total_pages);
         return true;
     }
-
-    size_t start = (size_t)(page - 1) * READ_WEB_PAGE_SIZE;
-    char chunk[READ_WEB_PAGE_SIZE + 1];
-    size_t n = s_web_cache_len - start;
-    if (n > READ_WEB_PAGE_SIZE) {
-        n = READ_WEB_PAGE_SIZE;
-    }
-    memcpy(chunk, s_web_cache + start, n);
-    chunk[n] = '\0';
-
-    if (page < total_pages) {
-        snprintf(result, result_len, "[pag %d/%d, pide page=%d para seguir]\n%s",
-                 page, total_pages, page + 1, chunk);
-    } else {
-        snprintf(result, result_len, "[pag %d/%d, fin]\n%s", page, total_pages, chunk);
-    }
+    format_page(&s, chunk, result, result_len);
     return true;
 }
 
