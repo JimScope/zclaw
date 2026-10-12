@@ -226,6 +226,9 @@ class InstallProvisionScriptTests(unittest.TestCase):
             )
 
             output = f"{proc.stdout}\n{proc.stderr}"
+            # flash.sh only prints this warning when chip detection yields nothing,
+            # so its absence proves the IDF-bundled esptool fallback detected the chip.
+            self.assertNotIn("could not detect chip type", output)
             self.assertEqual(proc.returncode, 0, msg=output)
             args_text = args_file.read_text(encoding="utf-8")
             self.assertIn("flash", args_text)
