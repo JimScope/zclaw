@@ -1,9 +1,12 @@
 #include "display_remote.h"
 
+#include "config.h"
+
+#if CONFIG_ZCLAW_DISPLAY_ENABLE
+
 #include <stdlib.h>
 #include <string.h>
 
-#include "config.h"
 #include "display_hw.h"
 #include "esp_crt_bundle.h"
 #include "esp_http_client.h"
@@ -224,3 +227,5 @@ esp_err_t display_remote_draw(const uint8_t *jpeg, size_t len)
     }
     return err;
 }
+
+#endif  // CONFIG_ZCLAW_DISPLAY_ENABLE
