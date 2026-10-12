@@ -142,12 +142,9 @@ void app_main(void)
     ota_init();
 
     // 3. Check factory reset button
-#if !CONFIG_ZCLAW_EMULATOR_MODE
     check_factory_reset();
-#endif
 
     // 4. Boot loop protection
-#if !CONFIG_ZCLAW_EMULATOR_MODE
     int boot_count = boot_guard_get_persisted_count();
     int next_boot_count = boot_guard_next_count(boot_count);
     esp_err_t boot_count_err = boot_guard_set_persisted_count(next_boot_count);
@@ -164,44 +161,8 @@ void app_main(void)
         ESP_LOGE(TAG, "");
         s_safe_mode = true;
     }
-#endif
 
     local_admin_set_safe_mode(s_safe_mode);
-
-#if CONFIG_ZCLAW_EMULATOR_MODE
-    ESP_LOGW(TAG, "Emulator mode enabled: skipping WiFi/NTP startup");
-#ifndef CONFIG_ZCLAW_STUB_LLM
-    ESP_LOGW(TAG, "Stub LLM is disabled; without network, LLM requests may fail");
-#endif
-
-    ESP_ERROR_CHECK(llm_init());
-    ratelimit_init();
-    tools_init();
-    channel_init();
-
-    QueueHandle_t input_queue = xQueueCreate(INPUT_QUEUE_LENGTH, sizeof(channel_msg_t));
-    QueueHandle_t channel_output_queue = xQueueCreate(OUTPUT_QUEUE_LENGTH, sizeof(channel_output_msg_t));
-    if (!input_queue || !channel_output_queue) {
-        ESP_LOGE(TAG, "Failed to create emulator queues");
-        esp_restart();
-    }
-
-    esp_err_t startup_err = channel_start(input_queue, channel_output_queue);
-    if (startup_err != ESP_OK) {
-        fail_fast_startup("channel_start", startup_err);
-    }
-
-    startup_err = agent_start(input_queue, channel_output_queue);
-    if (startup_err != ESP_OK) {
-        fail_fast_startup("agent_start", startup_err);
-    }
-
-    channel_write("\r\nzclaw emulator ready. Type a message and press Enter.\r\n\r\n");
-
-    while (1) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-#else
 
     bool device_configured = device_is_configured();
     local_admin_set_device_configured(device_configured);
@@ -324,5 +285,4 @@ void app_main(void)
     ESP_LOGI(TAG, "");
 
     // app_main returns - FreeRTOS scheduler continues running tasks
-#endif
 }

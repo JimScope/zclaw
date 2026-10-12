@@ -99,11 +99,6 @@ esp_err_t llm_request(const char *request_json, char *response_buf, size_t respo
     return result.err;
 }
 
-bool llm_is_stub_mode(void)
-{
-    return true;
-}
-
 const char *llm_get_api_url(void)
 {
     return "https://mock.invalid";

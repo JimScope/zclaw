@@ -21,13 +21,6 @@ menu "zclaw Configuration"
             initialization fails under active flash encryption.
             Enable only for explicit local debug scenarios.
 
-    config ZCLAW_STUB_LLM
-        bool "Stub LLM responses (for QEMU testing)"
-        default n
-        help
-            When enabled, returns hardcoded responses instead of calling the LLM API.
-            Useful for testing without WiFi (QEMU emulator).
-
     config ZCLAW_WEB_OTA_ENABLE
         bool "Firmware upload page on the LAN (port 80)"
         default n
@@ -43,30 +36,6 @@ menu "zclaw Configuration"
         help
             Keep it in the git-ignored sdkconfig.defaults.<target>. The page is
             not started with a PIN shorter than 4 or longer than 32 characters.
-
-    config ZCLAW_CHANNEL_UART
-        bool "Use UART0 for local channel (QEMU-friendly)"
-        default y if !SOC_USB_SERIAL_JTAG_SUPPORTED
-        default n
-        help
-            Uses UART0 instead of USB Serial/JTAG for local input/output.
-            Enable this for interactive QEMU use.
-            Targets without USB Serial/JTAG default to UART automatically.
-
-    config ZCLAW_EMULATOR_MODE
-        bool "Offline emulator mode (skip WiFi/NTP startup)"
-        default n
-        help
-            Starts only local channel + agent loop, without WiFi-dependent startup.
-            Intended for QEMU development workflows.
-
-    config ZCLAW_EMULATOR_LIVE_LLM
-        bool "Host-bridged live LLM in emulator mode"
-        default n
-        help
-            Routes LLM requests over UART to a host-side bridge process so QEMU can
-            use real provider APIs without guest WiFi/TLS networking.
-            Intended for emulator testing only.
 
     menu "GPIO Tool Safety"
         config ZCLAW_GPIO_MIN_PIN

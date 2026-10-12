@@ -14,7 +14,6 @@ from pathlib import Path
 TEST_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = TEST_DIR.parent.parent
 INSTALL_SH = PROJECT_ROOT / "install.sh"
-KCONFIG_PROJBUILD = PROJECT_ROOT / "main" / "Kconfig.projbuild"
 PROVISION_SH = PROJECT_ROOT / "scripts" / "provision.sh"
 PROVISION_DEV_SH = PROJECT_ROOT / "scripts" / "provision-dev.sh"
 ERASE_SH = PROJECT_ROOT / "scripts" / "erase.sh"
@@ -46,79 +45,6 @@ class InstallProvisionScriptTests(unittest.TestCase):
         env["PATH"] = f"{bin_dir}:/usr/bin:/bin:/usr/sbin:/sbin"
         env["TERM"] = "dumb"
         return env, bin_dir
-
-    def _run_install_with_prefs(self, prefs_text: str, extra_args: list[str]) -> subprocess.CompletedProcess[str]:
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
-            home = tmp / "home"
-            config_dir = home / ".config" / "zclaw"
-            config_dir.mkdir(parents=True, exist_ok=True)
-            (config_dir / "install.env").write_text(prefs_text, encoding="utf-8")
-
-            env = os.environ.copy()
-            env["HOME"] = str(home)
-            env["XDG_CONFIG_HOME"] = str(home / ".config")
-            # Keep PATH narrow so QEMU is treated as missing in CI/macOS hosts.
-            env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
-            env["TERM"] = "dumb"
-
-            cmd = [
-                str(INSTALL_SH),
-                "--no-build",
-                "--no-install-idf",
-                "--no-repair-idf",
-                "--no-flash",
-                "--no-provision",
-                "--no-monitor",
-                *extra_args,
-            ]
-            return subprocess.run(
-                cmd,
-                cwd=PROJECT_ROOT,
-                env=env,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-
-    def test_install_auto_applies_saved_qemu_choice(self) -> None:
-        prefs = """# zclaw install.sh preferences
-INSTALL_IDF=n
-REPAIR_IDF=
-INSTALL_QEMU=n
-INSTALL_CJSON=
-BUILD_NOW=n
-REPAIR_BUILD_IDF=
-FLASH_NOW=
-FLASH_MODE=1
-PROVISION_NOW=
-MONITOR_AFTER_FLASH=
-LAST_PORT=
-"""
-        proc = self._run_install_with_prefs(prefs, [])
-        output = f"{proc.stdout}\n{proc.stderr}"
-        self.assertEqual(proc.returncode, 0, msg=output)
-        self.assertIn("Install QEMU for ESP32 emulation?: no (saved)", output)
-
-    def test_install_cli_override_beats_saved_qemu_choice(self) -> None:
-        prefs = """# zclaw install.sh preferences
-INSTALL_IDF=n
-REPAIR_IDF=
-INSTALL_QEMU=y
-INSTALL_CJSON=
-BUILD_NOW=n
-REPAIR_BUILD_IDF=
-FLASH_NOW=
-FLASH_MODE=1
-PROVISION_NOW=
-MONITOR_AFTER_FLASH=
-LAST_PORT=
-"""
-        proc = self._run_install_with_prefs(prefs, ["--no-qemu"])
-        output = f"{proc.stdout}\n{proc.stderr}"
-        self.assertEqual(proc.returncode, 0, msg=output)
-        self.assertIn("Install QEMU for ESP32 emulation?: no", output)
-        self.assertNotIn("Install QEMU for ESP32 emulation?: no (saved)", output)
 
     def test_install_linux_uses_pacman_for_optional_dependencies(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -166,7 +92,6 @@ LAST_PORT=
                     str(INSTALL_SH),
                     "--no-install-idf",
                     "--no-repair-idf",
-                    "--qemu",
                     "--cjson",
                     "--no-build",
                     "--no-flash",
@@ -185,7 +110,6 @@ LAST_PORT=
             self.assertEqual(proc.returncode, 0, msg=output)
             self.assertIn("Detected Linux package manager: pacman", output)
             pkg_log_text = pkg_log.read_text(encoding="utf-8")
-            self.assertIn("--needed qemu-system-riscv", pkg_log_text)
             if "cJSON not found" in output:
                 self.assertIn("--needed cjson", pkg_log_text)
             else:
@@ -222,7 +146,6 @@ LAST_PORT=
                     str(INSTALL_SH),
                     "--no-install-idf",
                     "--no-repair-idf",
-                    "--qemu",
                     "--cjson",
                     "--no-build",
                     "--no-flash",
@@ -243,10 +166,6 @@ LAST_PORT=
                 "No supported package manager detected (tried apt-get, pacman, dnf, zypper).",
                 output,
             )
-            self.assertIn(
-                "Unsupported Linux package manager for QEMU install; install QEMU manually.",
-                output,
-            )
             if "cJSON not found" in output:
                 self.assertIn(
                     "Unsupported Linux package manager for cJSON install; install cJSON manually.",
@@ -258,11 +177,6 @@ LAST_PORT=
     def test_install_idf_chip_list_includes_esp32(self) -> None:
         install_text = INSTALL_SH.read_text(encoding="utf-8")
         self.assertIn('ESP_IDF_CHIPS="esp32,esp32c3,esp32c6,esp32s3"', install_text)
-
-    def test_kconfig_defaults_uart_when_usb_serial_jtag_is_unsupported(self) -> None:
-        kconfig_text = KCONFIG_PROJBUILD.read_text(encoding="utf-8")
-        self.assertIn("config ZCLAW_CHANNEL_UART", kconfig_text)
-        self.assertIn("default y if !SOC_USB_SERIAL_JTAG_SUPPORTED", kconfig_text)
 
     def test_build_box3_passes_expected_idf_overrides(self) -> None:
         with tempfile.TemporaryDirectory() as td:

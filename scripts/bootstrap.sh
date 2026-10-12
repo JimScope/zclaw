@@ -29,7 +29,7 @@ Examples:
   bash <(curl -fsSL https://raw.githubusercontent.com/tnm/zclaw/main/scripts/bootstrap.sh)
   bash <(curl -fsSL https://raw.githubusercontent.com/tnm/zclaw/main/scripts/bootstrap.sh) -- --build --flash
   ZCLAW_BOOTSTRAP_SHA256=<sha256> bash <(curl -fsSL https://raw.githubusercontent.com/tnm/zclaw/main/scripts/bootstrap.sh)
-  bash <(curl -fsSL https://raw.githubusercontent.com/tnm/zclaw/main/scripts/bootstrap.sh) --dir ~/src/zclaw -- --no-qemu
+  bash <(curl -fsSL https://raw.githubusercontent.com/tnm/zclaw/main/scripts/bootstrap.sh) --dir ~/src/zclaw -- --build --flash
 EOF
 }
 

@@ -1,18 +1,14 @@
 # Build output
 build/
-build-qemu/
 build-secure/
 /build-*/
 /build.*/
 sdkconfig
-sdkconfig.qemu
 sdkconfig.old
 /sdkconfig.*
 !/sdkconfig.defaults
-!/sdkconfig.qemu.defaults
 !/sdkconfig.*.defaults
 !/sdkconfig.secure
-!/sdkconfig.test
 
 # Flash encryption keys (NEVER commit these!)
 keys/

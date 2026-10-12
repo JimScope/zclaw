@@ -14,14 +14,7 @@ void channel_init(void);
 esp_err_t channel_start(QueueHandle_t input_queue, QueueHandle_t output_queue);
 
 // Write a string to the serial output.
-// Note: output can interleave with other channel task writes (echo/bridge traffic).
+// Note: output can interleave with other channel task writes (echo).
 void channel_write(const char *text);
-
-// Exchange one LLM request/response line with a host bridge over serial.
-// Used by emulator live-LLM mode.
-esp_err_t channel_llm_bridge_exchange(const char *request_json,
-                                      char *response_json,
-                                      size_t response_json_size,
-                                      uint32_t timeout_ms);
 
 #endif // CHANNEL_H

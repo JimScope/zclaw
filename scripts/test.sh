@@ -8,7 +8,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_DIR"
 
-TEST_TYPE="${1:-all}"
+TEST_TYPE="${1:-host}"
 
 run_host_tests() {
     echo "=== Running host tests ==="
@@ -148,8 +148,6 @@ run_host_tests() {
         -I../../main \
         -I. \
         -DTEST_BUILD \
-        -DCONFIG_ZCLAW_STUB_LLM=1 \
-        -DCONFIG_ZCLAW_EMULATOR_LIVE_LLM=0 \
         test_llm_runtime.c \
         test_llm_runtime_runner.c \
         mock_memory.c \
@@ -184,7 +182,6 @@ run_host_tests() {
     echo "=== Running host bridge Python tests ==="
     python3 -m unittest -q \
         test_benchmark_latency.py \
-        test_qemu_live_llm_bridge.py \
         test_web_relay.py \
         test_install_provision_scripts.py \
         test_api_provider_harness.py \
@@ -192,56 +189,13 @@ run_host_tests() {
     echo ""
 }
 
-run_device_tests() {
-    echo "=== Running device tests ==="
-
-    if [ ! -f "$PROJECT_DIR/sdkconfig.test" ]; then
-        echo "Skipping device test build: sdkconfig.test not found."
-        echo "Add sdkconfig.test to enable dedicated device-test builds."
-        return 0
-    fi
-
-    # Find and source ESP-IDF
-    if [ -f "$HOME/esp/esp-idf/export.sh" ]; then
-        source "$HOME/esp/esp-idf/export.sh"
-    elif [ -f "$HOME/esp/v5.4/esp-idf/export.sh" ]; then
-        source "$HOME/esp/v5.4/esp-idf/export.sh"
-    elif [ -n "$IDF_PATH" ]; then
-        source "$IDF_PATH/export.sh"
-    else
-        echo "Error: ESP-IDF not found"
-        return 1
-    fi
-
-    cd "$PROJECT_DIR"
-
-    # Build with test configuration
-    echo "Building test firmware..."
-    idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.test" build
-
-    echo ""
-    echo "Test build complete. Flash to device to run tests."
-    echo "Use: ./scripts/flash.sh && ./scripts/monitor.sh"
-}
-
 case "$TEST_TYPE" in
     host)
         run_host_tests
         ;;
-    device)
-        run_device_tests
-        ;;
-    all)
-        run_host_tests
-        # Device tests require hardware, just build them
-        echo "=== Building device tests ==="
-        run_device_tests
-        ;;
     *)
-        echo "Usage: $0 [host|device|all]"
+        echo "Usage: $0 [host]"
         echo "  host   - Run host-based unit tests (no hardware needed)"
-        echo "  device - Build device tests (requires flashing)"
-        echo "  all    - Run host tests and build device tests"
         exit 1
         ;;
 esac

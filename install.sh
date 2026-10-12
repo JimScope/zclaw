@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # zclaw Development Environment Setup
-# Installs ESP-IDF, QEMU, and dependencies
+# Installs ESP-IDF and dependencies
 #
 
 set -e
@@ -39,7 +39,6 @@ PREFS_LOADED=false
 PREFS_DIRTY=false
 PREF_INSTALL_IDF=""
 PREF_REPAIR_IDF=""
-PREF_INSTALL_QEMU=""
 PREF_INSTALL_CJSON=""
 PREF_BUILD_NOW=""
 PREF_REPAIR_BUILD_IDF=""
@@ -53,7 +52,6 @@ PREF_LAST_PORT=""
 ASSUME_YES=false
 FORCE_INSTALL_IDF=""
 FORCE_REPAIR_IDF=""
-FORCE_INSTALL_QEMU=""
 FORCE_INSTALL_CJSON=""
 FORCE_BUILD=""
 FORCE_FLASH=""
@@ -116,7 +114,6 @@ Options:
   --monitor / --no-monitor              Open serial monitor after standard flash
   --port <serial-port>                  Use this serial port for flash/monitor
   --kill-monitor / --no-kill-monitor    Auto-stop stale ESP-IDF monitor before flash
-  --qemu / --no-qemu                    Install optional QEMU dependency
   --cjson / --no-cjson                  Install optional cJSON dependency
   --install-idf / --no-install-idf      Install ESP-IDF if missing
   --repair-idf / --no-repair-idf        Repair ESP-IDF when activation fails
@@ -165,7 +162,6 @@ get_preference() {
     case "$1" in
         INSTALL_IDF) echo "$PREF_INSTALL_IDF" ;;
         REPAIR_IDF) echo "$PREF_REPAIR_IDF" ;;
-        INSTALL_QEMU) echo "$PREF_INSTALL_QEMU" ;;
         INSTALL_CJSON) echo "$PREF_INSTALL_CJSON" ;;
         BUILD_NOW) echo "$PREF_BUILD_NOW" ;;
         REPAIR_BUILD_IDF) echo "$PREF_REPAIR_BUILD_IDF" ;;
@@ -190,10 +186,6 @@ set_preference() {
         REPAIR_IDF)
             [ "$PREF_REPAIR_IDF" = "$value" ] && return 0
             PREF_REPAIR_IDF="$value"
-            ;;
-        INSTALL_QEMU)
-            [ "$PREF_INSTALL_QEMU" = "$value" ] && return 0
-            PREF_INSTALL_QEMU="$value"
             ;;
         INSTALL_CJSON)
             [ "$PREF_INSTALL_CJSON" = "$value" ] && return 0
@@ -251,7 +243,7 @@ load_preferences() {
         value="${value%$'\r'}"
 
         case "$key" in
-            INSTALL_IDF|REPAIR_IDF|INSTALL_QEMU|INSTALL_CJSON|BUILD_NOW|REPAIR_BUILD_IDF|FLASH_NOW|PROVISION_NOW|MONITOR_AFTER_FLASH)
+            INSTALL_IDF|REPAIR_IDF|INSTALL_CJSON|BUILD_NOW|REPAIR_BUILD_IDF|FLASH_NOW|PROVISION_NOW|MONITOR_AFTER_FLASH)
                 normalized="$(normalize_yes_no "$value")"
                 [ -n "$normalized" ] && set_preference "$key" "$normalized"
                 ;;
@@ -291,7 +283,6 @@ save_preferences() {
 # zclaw install.sh preferences
 INSTALL_IDF=$PREF_INSTALL_IDF
 REPAIR_IDF=$PREF_REPAIR_IDF
-INSTALL_QEMU=$PREF_INSTALL_QEMU
 INSTALL_CJSON=$PREF_INSTALL_CJSON
 BUILD_NOW=$PREF_BUILD_NOW
 REPAIR_BUILD_IDF=$PREF_REPAIR_BUILD_IDF
@@ -359,8 +350,6 @@ parse_args() {
                 ;;
             --kill-monitor) FORCE_KILL_MONITOR="y" ;;
             --no-kill-monitor) FORCE_KILL_MONITOR="n" ;;
-            --qemu) FORCE_INSTALL_QEMU="y" ;;
-            --no-qemu) FORCE_INSTALL_QEMU="n" ;;
             --cjson) FORCE_INSTALL_CJSON="y" ;;
             --no-cjson) FORCE_INSTALL_CJSON="n" ;;
             --install-idf) FORCE_INSTALL_IDF="y" ;;
@@ -661,7 +650,6 @@ echo -e "${BOLD}Welcome to the zclaw installer!${NC}"
 echo ""
 echo "This script will set up your development environment:"
 echo -e "  ${GREEN}•${NC} ESP-IDF $ESP_IDF_VERSION ${DIM}(required for building)${NC}"
-echo -e "  ${GREEN}•${NC} QEMU ${DIM}(optional, for emulation)${NC}"
 echo -e "  ${GREEN}•${NC} cJSON ${DIM}(optional, for host tests)${NC}"
 echo -e "  ${GREEN}•${NC} Flash helpers with serial + board-chip detection"
 echo ""
@@ -796,49 +784,6 @@ else
     else
         print_warning "Skipping ESP-IDF installation"
         print_warning "You'll need to install it manually to build firmware"
-    fi
-fi
-
-# ============================================================================
-# Check/Install QEMU
-# ============================================================================
-
-print_header "QEMU Emulator (Optional)"
-
-if check_command qemu-system-riscv32; then
-    print_status "QEMU found: $(which qemu-system-riscv32)"
-else
-    print_warning "QEMU not found"
-
-    if ask_yes_no "Install QEMU for ESP32 emulation?" "y" "INSTALL_QEMU" "$FORCE_INSTALL_QEMU" "true"; then
-        if [ "$OS" = "macos" ]; then
-            echo "Installing QEMU via Homebrew..."
-            brew install qemu
-        elif [ "$OS" = "linux" ]; then
-            case "$LINUX_PKG_MANAGER" in
-                apt) QEMU_PACKAGE="qemu-system-misc" ;;
-                pacman) QEMU_PACKAGE="qemu-system-riscv" ;;
-                dnf) QEMU_PACKAGE="qemu-system-riscv" ;;
-                zypper) QEMU_PACKAGE="qemu-riscv" ;;
-                *) QEMU_PACKAGE="" ;;
-            esac
-
-            if [ -n "$QEMU_PACKAGE" ]; then
-                if ! install_linux_packages "QEMU" "$QEMU_PACKAGE"; then
-                    print_warning "QEMU install did not complete automatically."
-                fi
-            else
-                print_warning "Unsupported Linux package manager for QEMU install; install QEMU manually."
-            fi
-        fi
-
-        if check_command qemu-system-riscv32; then
-            print_status "QEMU installed successfully"
-        else
-            print_error "QEMU installation failed"
-        fi
-    else
-        print_warning "Skipping QEMU installation"
     fi
 fi
 
@@ -1230,7 +1175,6 @@ echo -e "  ${YELLOW}./scripts/flash.sh${NC}          ${DIM}Flash to device${NC}"
 echo -e "  ${YELLOW}./scripts/flash-secure.sh${NC}   ${DIM}Flash with encryption${NC}"
 echo -e "  ${YELLOW}./scripts/provision.sh${NC}      ${DIM}Write WiFi/API credentials to NVS${NC}"
 echo -e "  ${YELLOW}./scripts/monitor.sh${NC}        ${DIM}Serial monitor${NC}"
-echo -e "  ${YELLOW}./scripts/emulate.sh${NC}        ${DIM}Run in QEMU${NC}"
 echo ""
 
 echo -e "${BOLD}Install flags:${NC}"
@@ -1240,7 +1184,7 @@ echo -e "  ${YELLOW}./install.sh -y --build --flash --provision${NC}"
 echo -e "  ${YELLOW}./install.sh --flash --provision${NC}"
 echo -e "  ${YELLOW}./install.sh --port /dev/cu.usbmodem* --monitor${NC}"
 echo -e "  ${YELLOW}./install.sh --flash --kill-monitor${NC}"
-echo -e "  ${YELLOW}./install.sh --no-qemu --no-cjson${NC}"
+echo -e "  ${YELLOW}./install.sh --no-cjson${NC}"
 echo ""
 
 echo -e "${BOLD}Pro tip:${NC} Add to your shell config:"

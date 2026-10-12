@@ -55,7 +55,8 @@ TEST(stub_request_returns_response)
     ASSERT(llm_init() == ESP_OK);
     ASSERT(llm_request("{\"message\":\"toggle gpio\"}", response, sizeof(response)) == ESP_OK);
     ASSERT(response[0] != '\0');
-    ASSERT(strstr(response, "tool_use") != NULL);
+    ASSERT(strstr(response, "choices") != NULL);
+    ASSERT(strstr(response, "gpio_write") != NULL);
     return 0;
 }
 
@@ -91,11 +92,11 @@ TEST(reinit_without_key_clears_previous_api_key_state)
 {
     configure_mock_store("openai", NULL, "test-key", NULL);
     ASSERT(llm_init() == ESP_OK);
-    ASSERT(llm_stub_has_api_key_for_test());
+    ASSERT(llm_test_has_api_key());
 
     configure_mock_store("openai", NULL, NULL, NULL);
     ASSERT(llm_init() == ESP_OK);
-    ASSERT(!llm_stub_has_api_key_for_test());
+    ASSERT(!llm_test_has_api_key());
     return 0;
 }
 

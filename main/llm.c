@@ -1,20 +1,21 @@
 #include "llm.h"
 #include "llm_auth.h"
-#include "channel.h"
 #include "config.h"
-#include "http_gate.h"
 #include "memory.h"
 #include "nvs_keys.h"
+#include "esp_log.h"
+#ifndef TEST_BUILD
+#include "http_gate.h"
 #include "text_buffer.h"
 #include "cJSON.h"
 #include "esp_http_client.h"
-#include "esp_log.h"
 #include "esp_tls.h"
 #include "esp_crt_bundle.h"
 #include "esp_timer.h"
 #include "esp_heap_caps.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
+#endif
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -22,16 +23,12 @@
 
 static const char *TAG = "llm";
 
-#if CONFIG_ZCLAW_EMULATOR_LIVE_LLM && CONFIG_ZCLAW_STUB_LLM
-#error "ZCLAW_EMULATOR_LIVE_LLM and ZCLAW_STUB_LLM cannot both be enabled"
-#endif
-
 // Current LLM configuration (loaded from NVS)
 static char s_api_key[LLM_API_KEY_BUF_SIZE] = {0};
 static char s_model[64] = {0};
 static char s_api_url_override[192] = {0};
 
-#if !CONFIG_ZCLAW_STUB_LLM && !CONFIG_ZCLAW_EMULATOR_LIVE_LLM
+#ifndef TEST_BUILD
 // Context for HTTP response accumulation (thread-safe via user_data)
 typedef struct {
     char *buf;
@@ -446,23 +443,7 @@ esp_err_t llm_init(void)
         ESP_LOGI(TAG, "Using custom LLM API endpoint override");
     }
 
-#ifdef CONFIG_ZCLAW_STUB_LLM
-    ESP_LOGW(TAG, "LLM stub mode enabled (QEMU testing)");
-#endif
-#if CONFIG_ZCLAW_EMULATOR_LIVE_LLM
-    ESP_LOGW(TAG, "LLM emulator bridge mode enabled (host-side API bridge required)");
-#endif
-
     return ESP_OK;
-}
-
-bool llm_is_stub_mode(void)
-{
-#ifdef CONFIG_ZCLAW_STUB_LLM
-    return true;
-#else
-    return false;
-#endif
 }
 
 const char *llm_get_api_url(void)
@@ -484,55 +465,27 @@ const char *llm_get_model(void)
     return s_model;
 }
 
-#if CONFIG_ZCLAW_STUB_LLM
-bool llm_stub_has_api_key_for_test(void)
+#ifdef TEST_BUILD
+bool llm_test_has_api_key(void)
 {
     return s_api_key[0] != '\0';
 }
-#endif
 
-#ifdef CONFIG_ZCLAW_STUB_LLM
-// Stub response for QEMU testing
-static const char *get_stub_response(const char *request_json)
+// Canned OpenAI-format replies so host tests never touch the network
+static const char *test_canned_reply(const char *request_json)
 {
-    // Check if this is a tool_result (second turn after tool use)
-    if (strstr(request_json, "tool_result")) {
-        return "{"
-            "\"content\": [{\"type\": \"text\", \"text\": \"Done! I executed the tool successfully.\"}],"
-            "\"stop_reason\": \"end_turn\""
-        "}";
+    if (strstr(request_json, "gpio")) {
+        return "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":null,"
+               "\"tool_calls\":[{\"id\":\"call_test\",\"type\":\"function\",\"function\":"
+               "{\"name\":\"gpio_write\",\"arguments\":\"{\\\"pin\\\":2,\\\"state\\\":1}\"}}]},"
+               "\"finish_reason\":\"tool_calls\"}]}";
     }
-
-    // Check if the request mentions GPIO
-    if (strstr(request_json, "pin") || strstr(request_json, "gpio") || strstr(request_json, "GPIO")) {
-        return "{"
-            "\"content\": ["
-                "{\"type\": \"tool_use\", \"id\": \"toolu_stub_001\", \"name\": \"gpio_write\", "
-                "\"input\": {\"pin\": 10, \"state\": 1}}"
-            "], \"stop_reason\": \"tool_use\""
-        "}";
-    }
-
-    // Check if request mentions memory/remember
-    if (strstr(request_json, "remember") || strstr(request_json, "memory") || strstr(request_json, "store")) {
-        return "{"
-            "\"content\": ["
-                "{\"type\": \"tool_use\", \"id\": \"toolu_stub_002\", \"name\": \"memory_set\", "
-                "\"input\": {\"key\": \"test_key\", \"value\": \"test_value\"}}"
-            "], \"stop_reason\": \"tool_use\""
-        "}";
-    }
-
-    // Default response
-    return "{"
-        "\"content\": [{\"type\": \"text\", \"text\": \"Hello from zclaw! "
-        "I'm running on a tiny ESP32. Try asking me to set a pin high or remember something.\"}],"
-        "\"stop_reason\": \"end_turn\""
-    "}";
+    return "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"test ok\"},"
+           "\"finish_reason\":\"stop\"}]}";
 }
 #endif
 
-#if !CONFIG_ZCLAW_EMULATOR_LIVE_LLM && !defined(CONFIG_ZCLAW_STUB_LLM)
+#ifndef TEST_BUILD
 // Returns a new request body with the model replaced, or NULL when the body
 // already uses fallback_model (or on parse failure). Caller frees.
 static char *llm_swap_model_in_request(const char *request_json, const char *fallback_model)
@@ -565,21 +518,10 @@ esp_err_t llm_request(const char *request_json, char *response_buf, size_t respo
 
     response_buf[0] = '\0';
 
-#if CONFIG_ZCLAW_EMULATOR_LIVE_LLM
-    // In emulator bridge mode, delegate HTTPS API calls to a host-side proxy.
-    esp_err_t bridge_err = channel_llm_bridge_exchange(request_json, response_buf, response_buf_size,
-                                                       LLM_HTTP_TIMEOUT_MS + 30000);
-    if (bridge_err != ESP_OK) {
-        ESP_LOGE(TAG, "Host bridge request failed: %s", esp_err_to_name(bridge_err));
-        return bridge_err;
-    }
-    ESP_LOGI(TAG, "Host bridge response: %d bytes", (int)strlen(response_buf));
-    return ESP_OK;
-#elif defined(CONFIG_ZCLAW_STUB_LLM)
-    const char *stub = get_stub_response(request_json);
-    strncpy(response_buf, stub, response_buf_size - 1);
+#ifdef TEST_BUILD
+    const char *canned = test_canned_reply(request_json);
+    strncpy(response_buf, canned, response_buf_size - 1);
     response_buf[response_buf_size - 1] = '\0';
-    ESP_LOGI(TAG, "Stub response: %d bytes", (int)strlen(response_buf));
     return ESP_OK;
 #else
     int64_t started_us = esp_timer_get_time();

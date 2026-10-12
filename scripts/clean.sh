@@ -10,6 +10,5 @@ cd "$PROJECT_DIR"
 
 echo "Cleaning build directory..."
 rm -rf build
-rm -rf build-qemu
 
 echo "Clean complete!"
