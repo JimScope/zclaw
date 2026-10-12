@@ -38,6 +38,39 @@ TEST(request_status_checks_in_order)
     return 0;
 }
 
+TEST(guard_allows_right_pin)
+{
+    web_ota_guard_t g = {0};
+    ASSERT(web_ota_guard_check(&g, true) == 0);
+    ASSERT(web_ota_guard_check(&g, true) == 0);
+    return 0;
+}
+
+TEST(guard_locks_after_five_wrong_pins)
+{
+    web_ota_guard_t g = {0};
+    for (int i = 0; i < WEB_OTA_MAX_BAD_PINS; i++) {
+        ASSERT(web_ota_guard_check(&g, false) == 401);
+    }
+    ASSERT(web_ota_guard_check(&g, true) == 423);  /* even the right PIN, until reboot */
+    ASSERT(web_ota_guard_check(&g, false) == 423);
+    return 0;
+}
+
+TEST(guard_right_pin_resets_the_count)
+{
+    web_ota_guard_t g = {0};
+    for (int i = 0; i < WEB_OTA_MAX_BAD_PINS - 1; i++) {
+        ASSERT(web_ota_guard_check(&g, false) == 401);
+    }
+    ASSERT(web_ota_guard_check(&g, true) == 0);
+    for (int i = 0; i < WEB_OTA_MAX_BAD_PINS - 1; i++) {
+        ASSERT(web_ota_guard_check(&g, false) == 401);
+    }
+    ASSERT(web_ota_guard_check(&g, true) == 0);
+    return 0;
+}
+
 int test_web_ota_policy_all(void)
 {
     int failures = 0;
@@ -51,6 +84,9 @@ int test_web_ota_policy_all(void)
 
     RUN(pin_matches_only_the_exact_pin);
     RUN(request_status_checks_in_order);
+    RUN(guard_allows_right_pin);
+    RUN(guard_locks_after_five_wrong_pins);
+    RUN(guard_right_pin_resets_the_count);
 
 #undef RUN
     return failures;

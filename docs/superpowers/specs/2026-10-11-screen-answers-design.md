@@ -135,6 +135,9 @@ characters (both set in the git-ignored board defaults).
   file with `fetch` and shows the result.
 - `POST /ota` — header `X-OTA-PIN`, raw `.bin` body with `Content-Length`.
   - PIN compared in constant time; a wrong PIN waits 1 s, then 401.
+  - Brute-force guard (added after a security review): after 5 wrong PINs
+    in a row every PIN-protected request (`/ota`, `/tasks`, `/log`) gets 423
+    until the board reboots; a right PIN before that resets the count.
   - 409 if an update is already running; 413 if larger than the target
     partition; 400 without `Content-Length`.
   - Streams 4 KB chunks (heap buffer) into `esp_ota_begin(next partition,

@@ -26,10 +26,12 @@
 #define WEB_OTA_BAD_PIN_MS 1000
 #define WEB_OTA_REBOOT_US  1000000
 #define WEB_TASKS_BUF      8192
+#define WEB_OTA_LOCKED_MSG "Demasiados PIN incorrectos: reinicia la placa"
 
 static const char *TAG = "web_ota";
 static httpd_handle_t s_server = NULL;
 static bool s_busy = false;
+static web_ota_guard_t s_guard;  // wrong-PIN lock, until reboot
 
 static const char PAGE_HEAD[] =
     "<!doctype html><html lang=es><meta charset=utf-8>"
@@ -138,18 +140,33 @@ static void schedule_reboot(void)
     }
 }
 
-// True with the right PIN; otherwise waits, replies 401 and returns false.
-static bool check_pin(httpd_req_t *req)
+// Wrong-PIN guard for one request: 0 allowed, 401 wrong PIN, 423 locked.
+static int guard_pin(httpd_req_t *req)
 {
     char pin[WEB_OTA_PIN_MAX + 2];
+    bool match = httpd_req_get_hdr_value_str(req, "X-OTA-PIN", pin, sizeof(pin)) == ESP_OK &&
+                 web_ota_pin_matches(pin, CONFIG_ZCLAW_WEB_OTA_PIN);
+    int status = web_ota_guard_check(&s_guard, match);
+    if (status != 0) {
+        ESP_LOGW(TAG, "%s", status == 423 ? "Locked: too many wrong PINs" : "Wrong PIN");
+    }
+    return status;
+}
 
-    if (httpd_req_get_hdr_value_str(req, "X-OTA-PIN", pin, sizeof(pin)) == ESP_OK &&
-        web_ota_pin_matches(pin, CONFIG_ZCLAW_WEB_OTA_PIN)) {
+// True with the right PIN; otherwise waits, replies 401/423 and returns false.
+static bool check_pin(httpd_req_t *req)
+{
+    int status = guard_pin(req);
+
+    if (status == 0) {
         return true;
     }
-    ESP_LOGW(TAG, "Wrong PIN");
     vTaskDelay(pdMS_TO_TICKS(WEB_OTA_BAD_PIN_MS));
-    reply(req, "401 Unauthorized", "PIN incorrecto");
+    if (status == 423) {
+        reply(req, "423 Locked", WEB_OTA_LOCKED_MSG);
+    } else {
+        reply(req, "401 Unauthorized", "PIN incorrecto");
+    }
     return false;
 }
 
@@ -189,15 +206,18 @@ static esp_err_t log_get(httpd_req_t *req)
 static esp_err_t ota_post(httpd_req_t *req)
 {
     const esp_partition_t *next = esp_ota_get_next_update_partition(NULL);
-    char pin[WEB_OTA_PIN_MAX + 2];
-    bool pin_ok = httpd_req_get_hdr_value_str(req, "X-OTA-PIN", pin, sizeof(pin)) == ESP_OK &&
-                  web_ota_pin_matches(pin, CONFIG_ZCLAW_WEB_OTA_PIN);
+    int guard = guard_pin(req);
 
+    if (guard == 423) {
+        vTaskDelay(pdMS_TO_TICKS(WEB_OTA_BAD_PIN_MS));
+        reply(req, "423 Locked", WEB_OTA_LOCKED_MSG);
+        return ESP_FAIL;  // closes the connection
+    }
     if (!next) {
         reply(req, "500 Internal Server Error", "Error: no hay partici\xC3\xB3n OTA");
         return ESP_FAIL;  // closes the connection
     }
-    switch (web_ota_request_status(req->content_len, next->size, pin_ok, s_busy)) {
+    switch (web_ota_request_status(req->content_len, next->size, guard == 0, s_busy)) {
     case 0:
         break;
     case 400:
@@ -207,7 +227,6 @@ static esp_err_t ota_post(httpd_req_t *req)
         reply(req, "413 Payload Too Large", "Error: el archivo no cabe en la partici\xC3\xB3n");
         return ESP_FAIL;
     case 401:
-        ESP_LOGW(TAG, "Wrong PIN");
         vTaskDelay(pdMS_TO_TICKS(WEB_OTA_BAD_PIN_MS));
         drain_body(req, req->content_len);
         return reply(req, "401 Unauthorized", "PIN incorrecto");

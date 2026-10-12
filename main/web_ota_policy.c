@@ -37,3 +37,16 @@ int web_ota_request_status(size_t content_len, size_t partition_size, bool pin_o
     }
     return 0;
 }
+
+int web_ota_guard_check(web_ota_guard_t *g, bool pin_ok)
+{
+    if (g->bad_pins >= WEB_OTA_MAX_BAD_PINS) {
+        return 423;
+    }
+    if (!pin_ok) {
+        g->bad_pins++;
+        return 401;
+    }
+    g->bad_pins = 0;
+    return 0;
+}
