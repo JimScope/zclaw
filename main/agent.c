@@ -31,12 +31,12 @@
 #include <string.h>
 #include <stdlib.h>
 #include <inttypes.h>
-#include <ctype.h>
 
 static const char *TAG = "agent";
 
 // Queues
 static QueueHandle_t s_input_queue;
+static TaskHandle_t s_agent_task;
 static QueueHandle_t s_channel_output_queue;
 static int64_t s_last_start_response_us = 0;
 static int64_t s_last_non_command_response_us = 0;
@@ -637,7 +637,7 @@ static void process_message(const char *user_message, message_source_t source)
             const user_tool_t *user_tool = user_tools_find(tool_name);
             metrics.tool_calls++;
             if (user_tool) {
-                // User tool: return the action as "instruction" for Claude to execute
+                // User tool: return the action as "instruction" for the model to execute
                 snprintf(s_tool_result_buf, sizeof(s_tool_result_buf),
                          "Execute this action now: %s", user_tool->action);
                 ESP_LOGI(TAG, "User tool '%s' action: %s", tool_name, user_tool->action);
@@ -660,7 +660,7 @@ static void process_message(const char *user_message, message_source_t source)
             history_add("user", s_tool_result_buf, false, true, tool_id, NULL);
 
             json_free_parsed_response();
-            // Continue loop to let Claude see the result
+            // Continue loop to let the model see the result
         } else {
             // Text response - we're done
             if (text_out[0] != '\0') {
@@ -743,6 +743,15 @@ static void agent_task(void *arg)
     }
 }
 
+uint32_t agent_stack_high_water_bytes(void)
+{
+#ifdef TEST_BUILD
+    return 0;
+#else
+    return s_agent_task ? (uint32_t)uxTaskGetStackHighWaterMark(s_agent_task) : 0;
+#endif
+}
+
 esp_err_t agent_start(QueueHandle_t input_queue, QueueHandle_t channel_output_queue)
 {
     if (!input_queue || !channel_output_queue) {
@@ -754,7 +763,7 @@ esp_err_t agent_start(QueueHandle_t input_queue, QueueHandle_t channel_output_qu
     s_channel_output_queue = channel_output_queue;
 
     if (xTaskCreate(agent_task, "agent", AGENT_TASK_STACK_SIZE, NULL,
-                    AGENT_TASK_PRIORITY, NULL) != pdPASS) {
+                    AGENT_TASK_PRIORITY, &s_agent_task) != pdPASS) {
         ESP_LOGE(TAG, "Failed to create agent task");
         return ESP_ERR_NO_MEM;
     }

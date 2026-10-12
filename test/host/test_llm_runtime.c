@@ -68,6 +68,7 @@ TEST(rejects_invalid_request_args)
 
     configure_mock_store("openai", "gpt-5.2", "test-key", NULL);
     ASSERT(llm_init() == ESP_OK);
+    response = (char *)&response;  // non-NULL sentinel: the call must clear it even on bad input
     ASSERT(llm_request(NULL, &response) == ESP_ERR_INVALID_ARG);
     ASSERT(response == NULL);
     ASSERT(llm_request("{}", NULL) == ESP_ERR_INVALID_ARG);

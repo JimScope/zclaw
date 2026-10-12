@@ -107,6 +107,23 @@ TEST(rollback_after_eviction_drops_the_partial_turn)
     return 0;
 }
 
+TEST(rollback_when_the_turn_evicted_its_own_records)
+{
+    char text[16];
+    history_clear();
+    for (int i = 0; i < 3; i++) {
+        history_add("user", "old", false, false, NULL, NULL);
+    }
+    history_mark_t mark = history_mark();
+    for (int i = 0; i < HISTORY_MAX_RECORDS + 4; i++) {  // the turn outgrows the whole history
+        snprintf(text, sizeof(text), "turn%d", i);
+        history_add("user", text, false, false, NULL, NULL);
+    }
+    ASSERT(history_rollback(mark) == HISTORY_MAX_RECORDS);  // everything left belongs to the turn
+    ASSERT(history_count() == 0);
+    return 0;
+}
+
 TEST(clear_empties)
 {
     history_add("user", "x", false, false, NULL, NULL);
@@ -132,6 +149,7 @@ int test_history_all(void)
     RUN(evicts_by_bytes_and_keeps_long_reply);
     RUN(rollback_drops_the_turn);
     RUN(rollback_after_eviction_drops_the_partial_turn);
+    RUN(rollback_when_the_turn_evicted_its_own_records);
     RUN(clear_empties);
 
 #undef RUN

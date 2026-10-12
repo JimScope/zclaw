@@ -17,7 +17,7 @@ static llm_result_t s_results[MOCK_MAX_RESULTS];
 static int s_result_count = 0;
 static int s_result_index = 0;
 static int s_request_count = 0;
-static char s_last_request[LLM_REQUEST_BUF_SIZE];
+static char s_last_request[16384];
 
 void mock_llm_reset(void)
 {

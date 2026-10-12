@@ -6,6 +6,7 @@
 #include "ratelimit.h"
 #include "cron.h"
 #include "user_tools.h"
+#include "agent.h"
 #include "esp_heap_caps.h"
 #include "esp_system.h"
 #include "esp_timer.h"
@@ -149,6 +150,11 @@ static uint32_t diag_get_largest_heap_block(void)
 #endif
 }
 
+static uint32_t diag_get_agent_stack_free(void)
+{
+    return agent_stack_high_water_bytes();
+}
+
 static bool diagnostics_scope_from_text(const char *scope_text, diag_scope_t *scope)
 {
     if (!scope_text || !scope) {
@@ -274,6 +280,7 @@ bool tools_get_diagnostics_handler(const cJSON *input, char *result, size_t resu
     uint32_t free_heap = diag_get_free_heap_size();
     uint32_t min_heap = diag_get_minimum_free_heap_size();
     uint32_t largest_heap = diag_get_largest_heap_block();
+    unsigned long stack_free = (unsigned long)diag_get_agent_stack_free();
     unsigned fragmentation_pct = diag_fragmentation_percent(free_heap, largest_heap);
     int requests_hour = ratelimit_get_requests_this_hour();
     int requests_day = ratelimit_get_requests_today();
@@ -368,6 +375,7 @@ bool tools_get_diagnostics_handler(const cJSON *input, char *result, size_t resu
                          "Diagnostics:\n"
                          "- Uptime: %s (%s)\n"
                          "- Heap: free=%lu min=%lu largest=%lu frag~%u%%\n"
+                         "- Agent stack: free=%lu (low point, bytes)\n"
                          "- Requests: %d/hr, %d/day\n"
                          "- Time sync: %s\n"
                          "- Timezone: %s (%s)\n"
@@ -379,6 +387,7 @@ bool tools_get_diagnostics_handler(const cJSON *input, char *result, size_t resu
                          (unsigned long)min_heap,
                          (unsigned long)largest_heap,
                          fragmentation_pct,
+                         stack_free,
                          requests_hour,
                          requests_day,
                          time_synced ? "synced" : "not synced",
@@ -391,6 +400,7 @@ bool tools_get_diagnostics_handler(const cJSON *input, char *result, size_t resu
                          "Diagnostics:\n"
                          "- Uptime: %s\n"
                          "- Heap: free=%lu min=%lu largest=%lu frag~%u%%\n"
+                         "- Agent stack: free=%lu (low point, bytes)\n"
                          "- Requests: %d/hr, %d/day\n"
                          "- Time sync: %s\n"
                          "- Timezone: %s (%s)\n"
@@ -401,6 +411,7 @@ bool tools_get_diagnostics_handler(const cJSON *input, char *result, size_t resu
                          (unsigned long)min_heap,
                          (unsigned long)largest_heap,
                          fragmentation_pct,
+                         stack_free,
                          requests_hour,
                          requests_day,
                          time_synced ? "synced" : "not synced",
@@ -413,7 +424,7 @@ bool tools_get_diagnostics_handler(const cJSON *input, char *result, size_t resu
         case DIAG_SCOPE_QUICK:
         default:
             snprintf(result, result_len,
-                     "Diag: uptime=%s | heap=%lu/%lu/%lu | req=%d/hr,%d/day | time=%s | tz=%s (%s) | boot=%s | v=%s",
+                     "Diag: uptime=%s | heap=%lu/%lu/%lu | req=%d/hr,%d/day | time=%s | tz=%s (%s) | boot=%s | v=%s | stack=%lu",
                      uptime_text,
                      (unsigned long)free_heap,
                      (unsigned long)min_heap,
@@ -424,7 +435,8 @@ bool tools_get_diagnostics_handler(const cJSON *input, char *result, size_t resu
                      timezone_posix,
                      timezone_abbrev,
                      boot_count,
-                     ota_get_version());
+                     ota_get_version(),
+                     stack_free);
             return true;
     }
 }

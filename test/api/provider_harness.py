@@ -16,7 +16,7 @@ except ModuleNotFoundError:
 
 SYSTEM_PROMPT = """You are zclaw, an AI agent running on an ESP32 microcontroller. \
 You have 400KB of RAM and run on bare metal with FreeRTOS. \
-You can control GPIO pins, talk to I2C devices, read supported sensors, store persistent memories, and set schedules. \
+You can control GPIO pins, store persistent memories, and set schedules. \
 Be concise - you're on a tiny chip. \
 Use your tools to control hardware, remember things, and automate tasks. \
 Users can create custom tools with create_tool. When you call a custom tool, \
@@ -198,11 +198,6 @@ MOCK_RESULTS = {
     "gpio_write": lambda inp: f"Pin {inp.get('pin')} -> {'HIGH' if inp.get('state') else 'LOW'}",
     "gpio_read": lambda inp: f"Pin {inp.get('pin')} = HIGH",
     "delay": lambda inp: f"Waited {inp.get('milliseconds')} ms",
-    "i2c_scan": lambda inp: f"No I2C devices found on SDA={inp.get('sda_pin')} SCL={inp.get('scl_pin')} @ {inp.get('frequency_hz', 100000)} Hz",
-    "i2c_write": lambda inp: f"Wrote bytes to I2C address {inp.get('address')}",
-    "i2c_read": lambda inp: f"Read {inp.get('read_length')} byte(s) from I2C address {inp.get('address')}: 0x00",
-    "i2c_write_read": lambda inp: f"Read {inp.get('read_length')} byte(s) from I2C address {inp.get('address')} after writing bytes: 0x00",
-    "dht_read": lambda inp: f"{inp.get('model', 'dht11').upper()} on GPIO {inp.get('pin')}: humidity=55.0%, temperature=24.0 C",
     "memory_set": lambda inp: f"Saved: {inp.get('key')} = {inp.get('value')}",
     "memory_get": lambda inp: f"{inp.get('key')} = example_value",
     "memory_list": lambda inp: "Stored keys: user_name, last_water",

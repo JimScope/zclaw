@@ -9,7 +9,6 @@
 #include "config.h"
 #include "cron_utils.h"
 #include "security.h"
-#include "text_buffer.h"
 #include "boot_guard.h"
 #include "nvs_keys.h"
 #include "mock_memory.h"
@@ -61,26 +60,6 @@ TEST(cron_next_entry_id_allocation)
         full[i] = (uint8_t)(i + 1);
     }
     ASSERT(cron_next_entry_id(full, 255) == 0);
-    return 0;
-}
-
-TEST(text_buffer_append_and_truncate)
-{
-    char buf[8];
-    size_t len = 0;
-    memset(buf, 0, sizeof(buf));
-
-    ASSERT(text_buffer_append(buf, &len, sizeof(buf), "hello", 5));
-    ASSERT(len == 5);
-    ASSERT(strcmp(buf, "hello") == 0);
-
-    ASSERT(text_buffer_append(buf, &len, sizeof(buf), "!!", 2));
-    ASSERT(len == 7);
-    ASSERT(strcmp(buf, "hello!!") == 0);
-
-    ASSERT(!text_buffer_append(buf, &len, sizeof(buf), "x", 1));
-    ASSERT(len == 7);
-    ASSERT(strcmp(buf, "hello!!") == 0);
     return 0;
 }
 
@@ -158,13 +137,6 @@ int test_runtime_utils_all(void)
 
     printf("  cron_next_entry_id_allocation... ");
     if (test_cron_next_entry_id_allocation() == 0) {
-        printf("OK\n");
-    } else {
-        failures++;
-    }
-
-    printf("  text_buffer_append_and_truncate... ");
-    if (test_text_buffer_append_and_truncate() == 0) {
         printf("OK\n");
     } else {
         failures++;

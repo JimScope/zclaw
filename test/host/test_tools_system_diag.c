@@ -63,6 +63,23 @@ TEST(diag_all_verbose_uses_seconds_detail_not_microseconds_label)
     return 0;
 }
 
+TEST(diag_quick_and_all_report_the_agent_stack_high_water_mark)
+{
+    char result[1024] = {0};
+    cJSON *quick = cJSON_Parse("{}");
+    ASSERT(quick != NULL);
+    ASSERT(tools_get_diagnostics_handler(quick, result, sizeof(result)));
+    ASSERT_STR_CONTAINS(result, " | stack=");
+    cJSON_Delete(quick);
+
+    cJSON *all = cJSON_Parse("{\"scope\":\"all\"}");
+    ASSERT(all != NULL);
+    ASSERT(tools_get_diagnostics_handler(all, result, sizeof(result)));
+    ASSERT_STR_CONTAINS(result, "- Agent stack: free=");
+    cJSON_Delete(all);
+    return 0;
+}
+
 int test_tools_system_diag_all(void)
 {
     int failures = 0;
@@ -78,6 +95,13 @@ int test_tools_system_diag_all(void)
 
     printf("  diag_all_verbose_uses_seconds_detail_not_microseconds_label... ");
     if (test_diag_all_verbose_uses_seconds_detail_not_microseconds_label() == 0) {
+        printf("OK\n");
+    } else {
+        failures++;
+    }
+
+    printf("  diag_quick_and_all_report_the_agent_stack_high_water_mark... ");
+    if (test_diag_quick_and_all_report_the_agent_stack_high_water_mark() == 0) {
         printf("OK\n");
     } else {
         failures++;

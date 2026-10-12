@@ -13,6 +13,9 @@ esp_err_t agent_start(QueueHandle_t input_queue, QueueHandle_t channel_output_qu
 // True while the agent task processes a message (voice ignores claps then).
 bool agent_is_busy(void);
 
+// Lowest free stack the agent task has reached, in bytes (0 before it starts).
+uint32_t agent_stack_high_water_bytes(void);
+
 #ifdef TEST_BUILD
 // Test-only helpers to drive agent logic without spawning FreeRTOS tasks.
 void agent_test_reset(void);

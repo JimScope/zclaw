@@ -339,10 +339,12 @@ static sd_fetch_result_t sd_fetch(const char *url, int *status, size_t *text_len
         if (!ok) {
             return SD_FETCH_FILE_ERROR;
         }
-        FILE *u = fopen(READ_WEB_URL, "w");
-        if (u) {
-            fputs(url, u);
-            fclose(u);
+        if (*text_len > 0) {  // an empty body must not stick as a cache hit
+            FILE *u = fopen(READ_WEB_URL, "w");
+            if (u) {
+                fputs(url, u);
+                fclose(u);
+            }
         }
     }
     return SD_FETCH_OK;
@@ -380,7 +382,9 @@ bool tools_read_web_handler(const cJSON *input, char *result, size_t result_len)
         size_t len = 0;
         bool io_error = false;
         bool file_error = false;
-        if (sd_cached_url_is(url->valuestring)) {
+        // Only a continuation page can hit the cache; page 1 always refetches so a
+        // cache left over from before a reboot is never served as fresh.
+        if (page >= 2 && sd_cached_url_is(url->valuestring)) {
             bool ok;
             len = sd_text_len(&ok);
             file_error = !ok;
@@ -397,8 +401,9 @@ bool tools_read_web_handler(const cJSON *input, char *result, size_t result_len)
         chunk[0] = '\0';
         if (!file_error && status >= 200 && status < 300 && !s.past_end && s.len > 0) {
             FILE *f = fopen(READ_WEB_TEXT, "r");
+            bool opened = (f != NULL);
             size_t n = 0;
-            if (f) {
+            if (opened) {
                 if (fseek(f, (long)s.start, SEEK_SET) == 0) {
                     n = fread(chunk, 1, s.len, f);
                 }
@@ -407,7 +412,9 @@ bool tools_read_web_handler(const cJSON *input, char *result, size_t result_len)
             chunk[n] = '\0';
             if (n != s.len) {
                 file_error = true;
-                io_error = io_error || (f != NULL);
+                io_error = io_error || opened;
+            } else {
+                chunk[web_page_trim_utf8(chunk, n)] = '\0';
             }
         }
         if (io_error) {
@@ -436,7 +443,7 @@ bool tools_read_web_handler(const cJSON *input, char *result, size_t result_len)
         http_gate_release();
         s = web_page_slice(status >= 200 && status < 300 ? strlen(text) : 0, page, WEB_PAGE_SIZE);
         memcpy(chunk, text + s.start, s.len);
-        chunk[s.len] = '\0';
+        chunk[web_page_trim_utf8(chunk, s.len)] = '\0';
         free(text);
     }
 

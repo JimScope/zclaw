@@ -99,7 +99,6 @@ run_host_tests() {
         ../../main/json_util.c \
         ../../main/cron_utils.c \
         ../../main/security.c \
-        ../../main/text_buffer.c \
         ../../main/boot_guard.c \
         ../../main/memory_keys.c \
         ../../main/llm_auth.c \

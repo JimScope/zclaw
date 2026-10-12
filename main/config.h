@@ -10,7 +10,6 @@
 // -----------------------------------------------------------------------------
 // Buffer Sizes
 // -----------------------------------------------------------------------------
-#define LLM_REQUEST_BUF_SIZE    12288   // 12KB for outgoing JSON
 #define LLM_RESPONSE_INITIAL    4096    // 4KB initial heap buffer for incoming JSON
 #define LLM_RESPONSE_MAX        16384   // 16KB hard cap the reply buffer may grow to
 #define CHANNEL_RX_BUF_SIZE     512     // Input line buffer
@@ -58,7 +57,6 @@
 #define LLM_AUTH_HEADER_BUF_SIZE  (sizeof("Bearer ") - 1 + LLM_API_KEY_MAX_LEN + 1)
 
 #define LLM_MAX_TOKENS          400     // Output cap; the delivery pipe truncates at ~1KB anyway
-#define HTTP_TIMEOUT_MS         30000   // 30 seconds for API calls
 #define LLM_HTTP_TIMEOUT_MS     20000   // 20 seconds for LLM API calls
 #define LLM_HTTP_GATE_WAIT_MS   31000   // max wait for the shared HTTP gate before an LLM call
 #define LLM_MAX_RETRIES         3       // Max LLM attempts per round (including first attempt)

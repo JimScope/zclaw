@@ -3,6 +3,7 @@
  */
 
 #include <stdio.h>
+#include <string.h>
 
 #include "web_page.h"
 
@@ -55,6 +56,42 @@ TEST(exact_multiple_has_no_extra_page)
     return 0;
 }
 
+TEST(trim_drops_leading_continuation_bytes)
+{
+    char buf[] = "\x80\xA9" "ab";
+    size_t n = web_page_trim_utf8(buf, 4);
+    ASSERT(n == 2 && memcmp(buf, "ab", 2) == 0);
+    return 0;
+}
+
+TEST(trim_drops_trailing_partial_sequences)
+{
+    char two[] = "ab\xC3";            // lead of a 2-byte sequence, cut
+    ASSERT(web_page_trim_utf8(two, 3) == 2);
+    char three_a[] = "ab\xE2";        // 3-byte, only the lead
+    ASSERT(web_page_trim_utf8(three_a, 3) == 2);
+    char three_b[] = "ab\xE2\x82";   // 3-byte, lead + 1 continuation
+    ASSERT(web_page_trim_utf8(three_b, 4) == 2);
+    return 0;
+}
+
+TEST(trim_keeps_complete_trailing_sequence)
+{
+    char buf[] = "ab\xC3\xA9";       // e acute
+    ASSERT(web_page_trim_utf8(buf, 4) == 4);
+    char euro[] = "a\xE2\x82\xAC";   // euro sign
+    ASSERT(web_page_trim_utf8(euro, 4) == 4);
+    return 0;
+}
+
+TEST(trim_leaves_ascii_and_empty_alone)
+{
+    char buf[] = "hello";
+    ASSERT(web_page_trim_utf8(buf, 5) == 5);
+    ASSERT(web_page_trim_utf8(buf, 0) == 0);
+    return 0;
+}
+
 int test_web_page_all(void)
 {
     int failures = 0;
@@ -71,6 +108,10 @@ int test_web_page_all(void)
     RUN(empty_text_is_one_empty_page);
     RUN(page_below_one_is_page_one);
     RUN(exact_multiple_has_no_extra_page);
+    RUN(trim_drops_leading_continuation_bytes);
+    RUN(trim_drops_trailing_partial_sequences);
+    RUN(trim_keeps_complete_trailing_sequence);
+    RUN(trim_leaves_ascii_and_empty_alone);
 
 #undef RUN
     return failures;

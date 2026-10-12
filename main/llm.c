@@ -507,12 +507,13 @@ static char *llm_swap_model_in_request(const char *request_json, const char *fal
 
 esp_err_t llm_request(const char *request_json, char **response_out)
 {
+    if (response_out) {
+        *response_out = NULL;  // callers may free it on any return, so clear it first
+    }
     if (!request_json || !response_out) {
         ESP_LOGE(TAG, "Invalid llm_request arguments");
         return ESP_ERR_INVALID_ARG;
     }
-
-    *response_out = NULL;
 
 #ifdef TEST_BUILD
     *response_out = strdup(test_canned_reply(request_json));

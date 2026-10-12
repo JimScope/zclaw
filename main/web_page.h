@@ -17,4 +17,8 @@ typedef struct {
 // Slices total_len bytes of text into pages of page_size bytes.
 web_page_slice_t web_page_slice(size_t total_len, int page, size_t page_size);
 
+// Trims a page's bytes in place so they hold only whole UTF-8 characters: drops
+// leading continuation bytes and a trailing incomplete sequence. Returns the new length.
+size_t web_page_trim_utf8(char *buf, size_t len);
+
 #endif // WEB_PAGE_H

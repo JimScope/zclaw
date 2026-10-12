@@ -31,7 +31,6 @@ idf_component_register(
         "json_util.c"
         "cron.c"
         "memory_keys.c"
-        "text_buffer.c"
         "security.c"
         "cron_utils.c"
         "ratelimit.c"

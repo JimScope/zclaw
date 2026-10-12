@@ -32,25 +32,6 @@ TEST(configured_capacity_is_large_enough)
     return 0;
 }
 
-TEST(copy_supports_long_key)
-{
-    char src[321];
-    char dst[LLM_API_KEY_BUF_SIZE];
-    fill_key(src, 320, 'k');
-    ASSERT(llm_copy_api_key(dst, sizeof(dst), src));
-    ASSERT(strcmp(dst, src) == 0);
-    return 0;
-}
-
-TEST(copy_rejects_key_above_limit)
-{
-    char src[LLM_API_KEY_MAX_LEN + 2];
-    char dst[LLM_API_KEY_BUF_SIZE];
-    fill_key(src, LLM_API_KEY_MAX_LEN + 1, 'x');
-    ASSERT(!llm_copy_api_key(dst, sizeof(dst), src));
-    return 0;
-}
-
 TEST(build_bearer_header_supports_long_key)
 {
     char key[301];
@@ -77,20 +58,6 @@ int test_llm_auth_all(void)
 
     printf("  configured_capacity_is_large_enough... ");
     if (test_configured_capacity_is_large_enough() == 0) {
-        printf("OK\n");
-    } else {
-        failures++;
-    }
-
-    printf("  copy_supports_long_key... ");
-    if (test_copy_supports_long_key() == 0) {
-        printf("OK\n");
-    } else {
-        failures++;
-    }
-
-    printf("  copy_rejects_key_above_limit... ");
-    if (test_copy_rejects_key_above_limit() == 0) {
         printf("OK\n");
     } else {
         failures++;

@@ -20,6 +20,14 @@ typedef struct {
     uint8_t pad[3];
 } history_rec_t;
 
+// The size and length fields are 16/8 bits wide; a record of maximal strings must
+// fit both them and the arena.
+_Static_assert(TOOL_ID_MAX <= 255 && TOOL_NAME_MAX <= 255, "id_len/name_len are uint8_t");
+_Static_assert(sizeof(history_rec_t) + TOOL_ID_MAX + TOOL_NAME_MAX + MAX_MESSAGE_LEN + 3 <= 65535,
+               "record size is uint16_t");
+_Static_assert(sizeof(history_rec_t) + TOOL_ID_MAX + TOOL_NAME_MAX + MAX_MESSAGE_LEN + 3 <= HISTORY_ARENA_BYTES,
+               "a maximal record must fit the arena");
+
 static uint8_t s_arena[HISTORY_ARENA_BYTES] __attribute__((aligned(4)));
 static size_t s_used;
 static int s_count;
