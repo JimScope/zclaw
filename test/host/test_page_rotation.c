@@ -111,6 +111,56 @@ TEST(request_made_during_activity_survives_that_activity)
     return 0;
 }
 
+TEST(answer_page_shows_for_its_duration)
+{
+    page_rotation_t r;
+    page_rotation_init(&r, 10000, 0, 0);
+    ASSERT(page_rotation_show(&r, PAGE_ANSWER, 8000, 1000));
+    ASSERT(page_rotation_update(&r, false, 1000) == PAGE_ANSWER);
+    ASSERT(page_rotation_update(&r, false, 8999) == PAGE_ANSWER);
+    ASSERT(page_rotation_update(&r, false, 9000) == PAGE_FACE);
+    return 0;
+}
+
+TEST(answer_does_not_cover_tool_page_of_same_turn)
+{
+    page_rotation_t r;
+    page_rotation_init(&r, 10000, 0, 0);
+    ASSERT(page_rotation_update(&r, true, 0) == PAGE_FACE);       /* turn starts */
+    ASSERT(page_rotation_show(&r, PAGE_REMOTE, 30000, 100));      /* display_dashboard tool */
+    ASSERT(!page_rotation_show(&r, PAGE_ANSWER, 8000, 200));      /* the turn's text reply */
+    ASSERT(page_rotation_update(&r, true, 300) == PAGE_REMOTE);
+    ASSERT(page_rotation_update(&r, false, 400) == PAGE_REMOTE);  /* turn over */
+    ASSERT(page_rotation_update(&r, false, 30099) == PAGE_REMOTE);
+    ASSERT(page_rotation_update(&r, false, 30100) == PAGE_FACE);
+    return 0;
+}
+
+TEST(answer_replaces_page_from_an_earlier_turn)
+{
+    page_rotation_t r;
+    page_rotation_init(&r, 10000, 0, 0);
+    ASSERT(page_rotation_update(&r, true, 0) == PAGE_FACE);
+    ASSERT(page_rotation_show(&r, PAGE_REMOTE, 30000, 100));
+    ASSERT(page_rotation_update(&r, false, 200) == PAGE_REMOTE);  /* turn over */
+    /* a command reply (no thinking) while that dashboard is still up */
+    ASSERT(page_rotation_show(&r, PAGE_ANSWER, 8000, 300));
+    ASSERT(page_rotation_update(&r, false, 300) == PAGE_ANSWER);
+    return 0;
+}
+
+TEST(answer_replaces_previous_answer)
+{
+    page_rotation_t r;
+    page_rotation_init(&r, 10000, 0, 0);
+    ASSERT(page_rotation_update(&r, true, 0) == PAGE_FACE);
+    ASSERT(page_rotation_show(&r, PAGE_ANSWER, 8000, 100));
+    ASSERT(page_rotation_show(&r, PAGE_ANSWER, 20000, 200));
+    ASSERT(page_rotation_update(&r, false, 8100) == PAGE_ANSWER);  /* the second, longer one */
+    ASSERT(page_rotation_update(&r, false, 20200) == PAGE_FACE);
+    return 0;
+}
+
 int test_page_rotation_all(void)
 {
     int failures = 0;
@@ -130,6 +180,10 @@ int test_page_rotation_all(void)
     RUN(requested_status_with_rotation_resumes_full_face_period);
     RUN(remote_page_can_replace_requested_status);
     RUN(request_made_during_activity_survives_that_activity);
+    RUN(answer_page_shows_for_its_duration);
+    RUN(answer_does_not_cover_tool_page_of_same_turn);
+    RUN(answer_replaces_page_from_an_earlier_turn);
+    RUN(answer_replaces_previous_answer);
 
 #undef RUN
     return failures;
