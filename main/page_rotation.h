@@ -8,7 +8,9 @@ typedef enum {
     PAGE_FACE = 0,
     PAGE_STATUS,   // device status (/panel), drawn locally
     PAGE_REMOTE,   // dashboard image downloaded from the VPS (/clima, /cripto)
-    PAGE_ANSWER    // Fidel's reply as text (question on top)
+    PAGE_ANSWER,   // Fidel's reply as text (question on top)
+    PAGE_MIC,      // microphone calibration (/mic)
+    PAGE_NOTICE    // short message, e.g. a voice error
 } page_t;
 
 typedef struct {

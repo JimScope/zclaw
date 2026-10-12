@@ -2,7 +2,7 @@
 """Convert face photos into .r565 frames for Fidel's ST7789 display.
 
 Input folder: neutral.png (required) plus any of eyes_closed, speaking,
-thinking, sleeping, happy, angry, speech (.png/.jpg), and numbered variants
+thinking, sleeping, happy, angry, speech, listening (.png/.jpg), and numbered variants
 such as speaking_2.png ... speaking_8.png.
 
 Output: <name>.r565 files to copy into the SD card's face/ folder, and a
@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
-FULL_FRAMES = ("neutral", "thinking", "sleeping", "happy", "angry", "speech")
+FULL_FRAMES = ("neutral", "thinking", "sleeping", "happy", "angry", "speech", "listening")
 PATCH_FRAMES = {"eyes_closed": "eyes", "speaking": "mouth"}
 ALIGNED_FRAMES = ("eyes_closed", "speaking", "happy", "angry")
 MAX_VARIANTS = 8

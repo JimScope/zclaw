@@ -17,7 +17,7 @@
 static const char *TAG = "display_face";
 
 static const char *const s_expr_names[FACE_EXPR_COUNT] = {
-    "neutral", "thinking", "sleeping", "happy", "angry", "speech",
+    "neutral", "thinking", "sleeping", "happy", "angry", "speech", "listening",
 };
 static const char *const s_patch_names[FACE_PATCH_COUNT] = {
     NULL, "eyes_closed", "speaking",
@@ -147,6 +147,8 @@ static const char *mode_label(face_mode_t mode)
         return "hablando...";
     case FACE_MODE_OFFLINE:
         return "sin conexi\xC3\xB3n";
+    case FACE_MODE_LISTENING:
+        return "escuchando...";
     case FACE_MODE_IDLE:
     default:
         return "Fidel";

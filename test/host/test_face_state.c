@@ -194,6 +194,57 @@ TEST(missing_frames_fall_back)
     return 0;
 }
 
+static void listening_catalog(face_state_t *s, uint8_t listening_variants)
+{
+    uint8_t expr[FACE_EXPR_COUNT];
+    uint8_t patch[FACE_PATCH_COUNT] = {0, 1, 1};
+    memset(expr, 1, sizeof(expr));
+    expr[FACE_EXPR_LISTENING] = listening_variants;
+    face_state_set_catalog(s, expr, patch);
+}
+
+TEST(listening_shows_listening_face)
+{
+    face_state_t s;
+    face_state_init(&s, 7u, 0);
+    listening_catalog(&s, 1);
+    face_state_set_wifi(&s, true);
+    face_state_set_listening(&s, true);
+    ASSERT(face_state_mode(&s, 100) == FACE_MODE_LISTENING);
+    face_frame_t f = face_state_frame(&s, 100);
+    ASSERT(f.expr == FACE_EXPR_LISTENING);
+    ASSERT(f.patch == FACE_PATCH_NONE);
+    face_state_set_listening(&s, false);
+    ASSERT(face_state_mode(&s, 200) == FACE_MODE_IDLE);
+    return 0;
+}
+
+TEST(listening_without_photo_uses_neutral)
+{
+    face_state_t s;
+    face_state_init(&s, 7u, 0);
+    listening_catalog(&s, 0);
+    face_state_set_wifi(&s, true);
+    face_state_set_listening(&s, true);
+    face_frame_t f = face_state_frame(&s, 100);
+    ASSERT(f.expr == FACE_EXPR_NEUTRAL);
+    ASSERT(!f.text_fallback);
+    return 0;
+}
+
+TEST(listening_counts_as_activity_and_wins)
+{
+    face_state_t s;
+    face_state_init(&s, 7u, 0);
+    listening_catalog(&s, 1);
+    ASSERT(!face_state_is_active(&s, 0));
+    face_state_set_thinking(&s, true);        /* also offline: wifi never came up */
+    face_state_set_listening(&s, true);
+    ASSERT(face_state_mode(&s, 0) == FACE_MODE_LISTENING);
+    ASSERT(face_state_is_active(&s, 0));
+    return 0;
+}
+
 int test_face_state_all(void)
 {
     int failures = 0;
@@ -213,6 +264,10 @@ int test_face_state_all(void)
     RUN(idle_blinks_with_bounded_gaps);
     RUN(thinking_cycles_variants);
     RUN(missing_frames_fall_back);
+
+    RUN(listening_shows_listening_face);
+    RUN(listening_without_photo_uses_neutral);
+    RUN(listening_counts_as_activity_and_wins);
 
 #undef RUN
     return failures;

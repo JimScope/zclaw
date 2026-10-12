@@ -100,6 +100,12 @@ class FaceAssetsTest(unittest.TestCase):
         _, x, y, w, h, *_ = read_frame(self.out / "eyes_closed.r565")
         self.assertEqual((x, y, w, h), (60, 80, 120, 30))
 
+    def test_listening_frame_is_converted(self):
+        portrait(mouth_open=True).save(self.src / "listening.png")
+        self.assertEqual(self.run_tool(), 0)
+        magic, x, y, w, h, flags, _, size = read_frame(self.out / "listening.r565")
+        self.assertEqual((magic, x, y, w, h, flags), (b"R565", 0, 0, 240, 240, 0))
+
     def test_missing_neutral_fails_cleanly(self):
         (self.src / "neutral.png").unlink()
         self.assertEqual(self.run_tool(), 2)

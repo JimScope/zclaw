@@ -22,6 +22,7 @@ typedef enum {
     FACE_EXPR_HAPPY,
     FACE_EXPR_ANGRY,
     FACE_EXPR_SPEECH,
+    FACE_EXPR_LISTENING,
     FACE_EXPR_COUNT
 } face_expr_t;
 
@@ -36,7 +37,8 @@ typedef enum {
     FACE_MODE_IDLE = 0,
     FACE_MODE_TALKING,
     FACE_MODE_THINKING,
-    FACE_MODE_OFFLINE
+    FACE_MODE_OFFLINE,
+    FACE_MODE_LISTENING
 } face_mode_t;
 
 typedef struct {
@@ -50,6 +52,7 @@ typedef struct {
 typedef struct {
     bool wifi_up;
     bool thinking;
+    bool listening;
     int64_t talk_until_ms;
     face_mode_t last_mode;
     int64_t mode_since_ms;
@@ -65,6 +68,7 @@ void face_state_set_catalog(face_state_t *s, const uint8_t expr_variants[FACE_EX
                             const uint8_t patch_variants[FACE_PATCH_COUNT]);
 void face_state_set_wifi(face_state_t *s, bool up);
 void face_state_set_thinking(face_state_t *s, bool active);
+void face_state_set_listening(face_state_t *s, bool active);
 void face_state_start_talking(face_state_t *s, size_t reply_chars, int64_t now_ms);
 int64_t face_state_talk_duration_ms(size_t reply_chars);
 face_mode_t face_state_mode(const face_state_t *s, int64_t now_ms);

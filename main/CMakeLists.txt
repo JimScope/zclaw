@@ -66,6 +66,7 @@ idf_component_register(
         "display_face.c"
         "display_remote.c"
         "display_answer.c"
+        "display_mic.c"
         "dash_url.c"
         "jpeg_strip.c"
         "dash_state.c"

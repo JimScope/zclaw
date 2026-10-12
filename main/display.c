@@ -9,6 +9,7 @@
 
 #include "dash_state.h"
 #include "display_answer.h"
+#include "display_mic.h"
 #include "dash_url.h"
 #include "display_face.h"
 #include "display_gfx.h"
@@ -36,6 +37,10 @@
 #define DASH_URL_MAX       200
 #define ANSWER_PROMPT_MAX  160
 #define ANSWER_REPLY_MAX   CHANNEL_TX_BUF_SIZE
+#define DISPLAY_BAR_Y      232
+#define DISPLAY_BAR_H      8
+#define DISPLAY_BAR_MS     50
+#define DISPLAY_MIC_MS     250
 
 typedef enum {
     DISPLAY_EV_THINKING,
@@ -46,6 +51,9 @@ typedef enum {
     DISPLAY_EV_DASH_DONE,
     DISPLAY_EV_SHOW_JPEG,
     DISPLAY_EV_SHOW_ANSWER,
+    DISPLAY_EV_LISTENING,
+    DISPLAY_EV_SHOW_MIC,
+    DISPLAY_EV_SHOW_NOTICE,
 } display_event_type_t;
 
 typedef struct {
@@ -72,6 +80,15 @@ static const char *s_dash_title = "Imagen";
 static int64_t s_answer_since = 0;
 static size_t s_answer_page = 0;
 static bool s_answer_fresh = false;
+
+// Voice: level bar over the listening face, /mic page, notice page.
+static volatile uint8_t s_level;        // 0-100, stored by the voice task
+static int64_t s_bar_ms;
+static bool s_bar_shown;
+static display_mic_stats_t s_mic;       // under s_mic_mux
+static portMUX_TYPE s_mic_mux = portMUX_INITIALIZER_UNLOCKED;
+static int64_t s_mic_ms;
+static char *s_notice;                  // "title\0text\0", owned
 
 static int64_t now_ms(void)
 {
@@ -151,6 +168,26 @@ static void start_dash_fetch(void)
     }
 }
 
+static void draw_level_bar(uint8_t percent)
+{
+    int w = percent >= 100 ? DISPLAY_W : DISPLAY_W * percent / 100;
+    if (w > 0) {
+        gfx_fill_rect(0, DISPLAY_BAR_Y, w, DISPLAY_BAR_H, GFX_AMBER);
+    }
+    if (w < DISPLAY_W) {
+        gfx_fill_rect(w, DISPLAY_BAR_Y, DISPLAY_W - w, DISPLAY_BAR_H, GFX_BLACK);
+    }
+}
+
+static display_mic_stats_t mic_stats(void)
+{
+    display_mic_stats_t copy;
+    taskENTER_CRITICAL(&s_mic_mux);
+    copy = s_mic;
+    taskEXIT_CRITICAL(&s_mic_mux);
+    return copy;
+}
+
 static void apply_event(const display_event_t *ev, int64_t now)
 {
     switch (ev->type) {
@@ -186,6 +223,17 @@ static void apply_event(const display_event_t *ev, int64_t now)
         }
         break;
     }
+    case DISPLAY_EV_LISTENING:
+        face_state_set_listening(&s_face, ev->value != 0);
+        break;
+    case DISPLAY_EV_SHOW_MIC:
+        page_rotation_show(&s_pages, PAGE_MIC, ev->value, now);
+        break;
+    case DISPLAY_EV_SHOW_NOTICE:
+        free(s_notice);
+        s_notice = ev->ptr;
+        page_rotation_show(&s_pages, PAGE_NOTICE, ev->value, now);
+        break;
     case DISPLAY_EV_DASH_DONE:
         if (!dash_state_done(&s_dash, ev->value, ev->ptr, ev->extra)) {
             free(ev->ptr);  // stale download for an older request
@@ -224,6 +272,10 @@ static void display_task(void *arg)
         if (page != PAGE_ANSWER && display_answer_loaded()) {
             display_answer_clear();  // expired, or cancelled by a new activity
         }
+        if (page != PAGE_NOTICE && s_notice) {
+            free(s_notice);
+            s_notice = NULL;
+        }
         if (page == PAGE_REMOTE && s_dash.need_fetch) {
             start_dash_fetch();
         }
@@ -246,6 +298,13 @@ static void display_task(void *arg)
                 s_answer_page = 0;
                 s_answer_fresh = false;
                 display_answer_draw(0);
+            } else if (page == PAGE_MIC) {
+                display_mic_stats_t stats = mic_stats();
+                display_mic_draw_frame();
+                display_mic_draw_values(&stats, s_level);
+                s_mic_ms = now;
+            } else if (page == PAGE_NOTICE) {
+                draw_message(s_notice ? s_notice : "", s_notice ? s_notice + strlen(s_notice) + 1 : "");
             } else {
                 display_face_invalidate();
                 if (!display_face_draw(&s_face, now)) {
@@ -276,11 +335,25 @@ static void display_task(void *arg)
                     fade_in();
                 }
             }
+        } else if (page == PAGE_MIC && now - s_mic_ms >= DISPLAY_MIC_MS) {
+            display_mic_stats_t stats = mic_stats();
+            display_mic_draw_values(&stats, s_level);
+            s_mic_ms = now;
         }
 
-        if (page == PAGE_FACE && !display_face_draw(&s_face, now)) {
-            sd_card_mark_failed(now);
-            display_face_clear(&s_face);
+        if (page == PAGE_FACE) {
+            if (!display_face_draw(&s_face, now)) {
+                sd_card_mark_failed(now);
+                display_face_clear(&s_face);
+            }
+            if (s_face.listening && now - s_bar_ms >= DISPLAY_BAR_MS) {
+                draw_level_bar(s_level);
+                s_bar_ms = now;
+                s_bar_shown = true;
+            } else if (!s_face.listening && s_bar_shown) {
+                display_face_invalidate();  // repaint the rows under the bar
+                s_bar_shown = false;
+            }
         }
     }
 }
@@ -367,6 +440,58 @@ bool display_show_answer(const char *label, const char *prompt, const char *repl
     return true;
 }
 
+void display_notify_listening(bool active)
+{
+    post(DISPLAY_EV_LISTENING, active ? 1u : 0u, 0);
+}
+
+void display_set_level(uint8_t percent)
+{
+    s_level = percent > 100 ? 100 : percent;
+}
+
+bool display_show_mic(uint32_t duration_ms)
+{
+    if (!s_queue) {
+        return false;
+    }
+    post(DISPLAY_EV_SHOW_MIC, duration_ms, 0);
+    return true;
+}
+
+void display_set_mic_stats(const display_mic_stats_t *stats)
+{
+    if (!stats) {
+        return;
+    }
+    taskENTER_CRITICAL(&s_mic_mux);
+    s_mic = *stats;
+    taskEXIT_CRITICAL(&s_mic_mux);
+}
+
+bool display_show_notice(const char *title, const char *text, uint32_t duration_ms)
+{
+    if (!s_queue || !title || !text) {
+        return false;
+    }
+    size_t tl = strlen(title);
+    size_t xl = strlen(text);
+    char *block = malloc(tl + 1 + xl + 1);
+    if (!block) {
+        return false;
+    }
+    memcpy(block, title, tl + 1);
+    memcpy(block + tl + 1, text, xl + 1);
+    display_event_t ev = {
+        .type = DISPLAY_EV_SHOW_NOTICE, .value = duration_ms, .extra = 0, .ptr = block,
+    };
+    if (xQueueSend(s_queue, &ev, 0) != pdTRUE) {
+        free(block);
+        return false;
+    }
+    return true;
+}
+
 bool display_request_status(uint32_t duration_ms)
 {
     if (!s_queue) {
@@ -426,5 +551,16 @@ bool display_show_answer(const char *label, const char *prompt, const char *repl
     return false;
 }
 bool display_is_running(void) { return false; }
+void display_notify_listening(bool active) { (void)active; }
+void display_set_level(uint8_t percent) { (void)percent; }
+bool display_show_mic(uint32_t duration_ms) { (void)duration_ms; return false; }
+void display_set_mic_stats(const display_mic_stats_t *stats) { (void)stats; }
+bool display_show_notice(const char *title, const char *text, uint32_t duration_ms)
+{
+    (void)title;
+    (void)text;
+    (void)duration_ms;
+    return false;
+}
 
 #endif

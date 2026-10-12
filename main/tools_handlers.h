@@ -37,6 +37,7 @@ bool tools_led_blink_handler(const cJSON *input, char *result, size_t result_len
 // Onboard LED "thinking" animation (implemented in tools_led.c).
 void led_thinking_start(void);
 void led_thinking_stop(void);
+void led_listening_set(bool on);
 bool tools_dht_read_handler(const cJSON *input, char *result, size_t result_len);
 
 // Memory

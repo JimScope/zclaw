@@ -174,6 +174,20 @@ static void led_anim_hands_off(void)
     vTaskDelay(pdMS_TO_TICKS(ANIM_FRAME_MS + 5));
 }
 
+void led_listening_set(bool on)
+{
+    // Solid red while listening; the thinking animation takes over afterwards.
+    if (!s_led_mutex) {
+        s_led_mutex = xSemaphoreCreateMutex();
+    }
+    s_anim_active = false;
+    led_anim_hands_off();
+    led_anim_draw(on ? 80 : 0, 0, 0);
+    if (!on) {
+        s_anim_hands_off = false;
+    }
+}
+
 static bool led_strip_ensure(void)
 {
     if (s_strip) {

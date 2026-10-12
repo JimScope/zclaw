@@ -38,4 +38,27 @@ bool display_show_answer(const char *label, const char *prompt, const char *repl
 // True once display_start() succeeded.
 bool display_is_running(void);
 
+typedef struct {
+    int16_t peak_dbfs10;    // tenths of dBFS
+    int16_t rms_dbfs10;
+    int16_t noise_dbfs10;
+    uint16_t clip_permille;
+    uint16_t adc_offset;    // mean raw 12-bit ADC value (ideal ~2048)
+    uint32_t overruns;      // ADC frames lost since boot
+} display_mic_stats_t;
+
+// Voice: listening face + level bar while active. Non-blocking.
+void display_notify_listening(bool active);
+
+// Voice level for the bar, 0-100 (a plain store, no queue event).
+void display_set_level(uint8_t percent);
+
+// Microphone calibration page for duration_ms; numbers come from
+// display_set_mic_stats (copied under a lock). False when not running.
+bool display_show_mic(uint32_t duration_ms);
+void display_set_mic_stats(const display_mic_stats_t *stats);
+
+// Short message page (title + text, both copied) for duration_ms.
+bool display_show_notice(const char *title, const char *text, uint32_t duration_ms);
+
 #endif // DISPLAY_API_H

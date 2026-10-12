@@ -57,6 +57,11 @@ void face_state_set_thinking(face_state_t *s, bool active)
     s->thinking = active;
 }
 
+void face_state_set_listening(face_state_t *s, bool active)
+{
+    s->listening = active;
+}
+
 int64_t face_state_talk_duration_ms(size_t reply_chars)
 {
     int64_t ms = (int64_t)reply_chars * FACE_TALK_MS_PER_CHAR;
@@ -79,6 +84,9 @@ void face_state_start_talking(face_state_t *s, size_t reply_chars, int64_t now_m
 
 face_mode_t face_state_mode(const face_state_t *s, int64_t now_ms)
 {
+    if (s->listening) {
+        return FACE_MODE_LISTENING;  // wins: the user is talking to the board
+    }
     if (!s->wifi_up) {
         return FACE_MODE_OFFLINE;
     }
@@ -94,7 +102,7 @@ face_mode_t face_state_mode(const face_state_t *s, int64_t now_ms)
 bool face_state_is_active(const face_state_t *s, int64_t now_ms)
 {
     face_mode_t mode = face_state_mode(s, now_ms);
-    return mode == FACE_MODE_THINKING || mode == FACE_MODE_TALKING;
+    return mode == FACE_MODE_THINKING || mode == FACE_MODE_TALKING || mode == FACE_MODE_LISTENING;
 }
 
 face_frame_t face_state_frame(face_state_t *s, int64_t now_ms)
@@ -132,6 +140,10 @@ face_frame_t face_state_frame(face_state_t *s, int64_t now_ms)
         }
         break;
     }
+    case FACE_MODE_LISTENING:
+        f.expr = FACE_EXPR_LISTENING;
+        f.expr_variant = cycle_variant(elapsed, s->expr_variants[FACE_EXPR_LISTENING]);
+        break;
     case FACE_MODE_IDLE:
     default:
         if (now_ms >= s->blink_until_ms && now_ms >= s->next_blink_ms) {
