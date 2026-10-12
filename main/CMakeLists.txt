@@ -21,8 +21,6 @@ idf_component_register(
         "task_log.c"
         "task_log_format.c"
         "tools_tsens.c"
-        "tools_i2c.c"
-        "tools_dht.c"
         "tools_memory.c"
         "tools_cron.c"
         "tools_system.c"

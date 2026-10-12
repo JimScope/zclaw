@@ -74,29 +74,6 @@ TOOL_ENTRY("chip_temp",
            "Read the chip's internal temperature sensor (Celsius).",
            "{\"type\":\"object\",\"properties\":{}}",
            tools_chip_temp_handler)
-// Disabled: no I2C/DHT hardware connected (re-enable by removing this #if 0)
-#if 0
-TOOL_ENTRY("i2c_scan",
-           "Scan an I2C bus for devices.",
-           "{\"type\":\"object\",\"properties\":{\"sda_pin\":{\"type\":\"integer\"},\"scl_pin\":{\"type\":\"integer\"},\"frequency_hz\":{\"type\":\"integer\"}},\"required\":[\"sda_pin\",\"scl_pin\"]}",
-           tools_i2c_scan_handler)
-TOOL_ENTRY("i2c_write",
-           "Write hex bytes to an I2C address.",
-           "{\"type\":\"object\",\"properties\":{\"sda_pin\":{\"type\":\"integer\"},\"scl_pin\":{\"type\":\"integer\"},\"address\":{\"type\":\"integer\"},\"data_hex\":{\"type\":\"string\"},\"frequency_hz\":{\"type\":\"integer\"}},\"required\":[\"sda_pin\",\"scl_pin\",\"address\",\"data_hex\"]}",
-           tools_i2c_write_handler)
-TOOL_ENTRY("i2c_read",
-           "Read bytes from an I2C address.",
-           "{\"type\":\"object\",\"properties\":{\"sda_pin\":{\"type\":\"integer\"},\"scl_pin\":{\"type\":\"integer\"},\"address\":{\"type\":\"integer\"},\"read_length\":{\"type\":\"integer\"},\"frequency_hz\":{\"type\":\"integer\"}},\"required\":[\"sda_pin\",\"scl_pin\",\"address\",\"read_length\"]}",
-           tools_i2c_read_handler)
-TOOL_ENTRY("i2c_write_read",
-           "Write hex bytes, then read from the same I2C address.",
-           "{\"type\":\"object\",\"properties\":{\"sda_pin\":{\"type\":\"integer\"},\"scl_pin\":{\"type\":\"integer\"},\"address\":{\"type\":\"integer\"},\"write_hex\":{\"type\":\"string\"},\"read_length\":{\"type\":\"integer\"},\"frequency_hz\":{\"type\":\"integer\"}},\"required\":[\"sda_pin\",\"scl_pin\",\"address\",\"write_hex\",\"read_length\"]}",
-           tools_i2c_write_read_handler)
-TOOL_ENTRY("dht_read",
-           "Read a DHT11 or DHT22 sensor.",
-           "{\"type\":\"object\",\"properties\":{\"pin\":{\"type\":\"integer\"},\"model\":{\"type\":\"string\",\"enum\":[\"dht11\",\"dht22\"]},\"retries\":{\"type\":\"integer\"}},\"required\":[\"pin\",\"model\"]}",
-           tools_dht_read_handler)
-#endif
 
 // Memory
 TOOL_ENTRY("memory_set",
