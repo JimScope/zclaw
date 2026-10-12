@@ -12,8 +12,6 @@ BACKEND=""
 MODEL=""
 API_KEY=""
 API_URL=""
-TG_TOKEN=""
-TG_CHAT_IDS=""
 ASSUME_YES=false
 VERIFY_API_KEY=true
 PRINT_DETECTED_SSID=false
@@ -33,9 +31,6 @@ Options:
   --model <model-id>        Model ID (defaults by backend)
   --api-key <key>           LLM API key (required for anthropic/openai/openrouter)
   --api-url <url>           Optional custom API endpoint URL
-  --tg-token <token>        Telegram bot token (optional)
-  --tg-chat-id <id[,id...]> Telegram chat ID allowlist (optional)
-  --tg-chat-ids <list>      Alias of --tg-chat-id
   --yes                     Non-interactive (requires --api-key except ollama; SSID auto-detect if possible)
   --skip-api-check          Skip live API key verification step
   --print-detected-ssid     Print detected host WiFi SSID and exit (test/troubleshooting helper)
@@ -489,59 +484,6 @@ trim_spaces() {
     printf '%s' "$value"
 }
 
-normalize_telegram_chat_ids() {
-    local raw="$1"
-    local token
-    local seen=" "
-    local normalized=""
-    local count=0
-    local max_ids=4
-    local IFS=','
-    local part
-
-    for part in $raw; do
-        token="$(trim_spaces "$part")"
-        if [ -z "$token" ]; then
-            continue
-        fi
-
-        if ! [[ "$token" =~ ^-?[0-9]+$ ]] || [ "$token" = "0" ]; then
-            return 1
-        fi
-
-        if [[ "$seen" == *" $token "* ]]; then
-            continue
-        fi
-
-        if [ "$count" -ge "$max_ids" ]; then
-            return 1
-        fi
-
-        seen="${seen}${token} "
-        if [ -z "$normalized" ]; then
-            normalized="$token"
-        else
-            normalized="$normalized,$token"
-        fi
-        count=$((count + 1))
-    done
-
-    if [ "$count" -eq 0 ]; then
-        return 1
-    fi
-
-    printf '%s\n' "$normalized"
-}
-
-first_telegram_chat_id() {
-    local raw="$1"
-    local IFS=','
-    local first=""
-    local _rest=""
-    read -r first _rest <<< "$raw"
-    printf '%s\n' "$first"
-}
-
 csv_escape() {
     local value="$1"
     value="${value//$'\r'/ }"
@@ -897,30 +839,6 @@ while [ $# -gt 0 ]; do
         --api-url=*)
             API_URL="${1#*=}"
             ;;
-        --tg-token)
-            shift
-            [ $# -gt 0 ] || { echo "Error: --tg-token requires a value"; exit 1; }
-            TG_TOKEN="$1"
-            ;;
-        --tg-token=*)
-            TG_TOKEN="${1#*=}"
-            ;;
-        --tg-chat-id)
-            shift
-            [ $# -gt 0 ] || { echo "Error: --tg-chat-id requires a value"; exit 1; }
-            TG_CHAT_IDS="$1"
-            ;;
-        --tg-chat-id=*)
-            TG_CHAT_IDS="${1#*=}"
-            ;;
-        --tg-chat-ids)
-            shift
-            [ $# -gt 0 ] || { echo "Error: --tg-chat-ids requires a value"; exit 1; }
-            TG_CHAT_IDS="$1"
-            ;;
-        --tg-chat-ids=*)
-            TG_CHAT_IDS="${1#*=}"
-            ;;
         --yes)
             ASSUME_YES=true
             ;;
@@ -1152,29 +1070,6 @@ while ! check_wifi_credentials; do
     exit 1
 done
 
-if [ "$ASSUME_YES" != true ]; then
-    if [ -z "$TG_TOKEN" ]; then
-        read -r -p "Telegram bot token (optional): " TG_TOKEN
-    fi
-
-    if [ -z "$TG_CHAT_IDS" ]; then
-        read -r -p "Telegram chat ID(s) (optional, comma-separated): " TG_CHAT_IDS
-    fi
-fi
-
-if [ -n "$TG_CHAT_IDS" ]; then
-    NORMALIZED_TG_CHAT_IDS="$(normalize_telegram_chat_ids "$TG_CHAT_IDS" || true)"
-    if [ -z "$NORMALIZED_TG_CHAT_IDS" ]; then
-        echo "Error: invalid --tg-chat-id value. Use 1-4 non-zero integers (comma-separated)."
-        exit 1
-    fi
-    TG_CHAT_IDS="$NORMALIZED_TG_CHAT_IDS"
-fi
-
-if [ -n "$TG_TOKEN" ] && [ -z "$TG_CHAT_IDS" ]; then
-    echo "Warning: Telegram token set without chat ID allowlist; incoming messages will be ignored."
-fi
-
 NVS_GEN="$IDF_PATH/components/nvs_flash/nvs_partition_generator/nvs_partition_gen.py"
 PARTTOOL="$IDF_PATH/components/partition_table/parttool.py"
 
@@ -1202,15 +1097,6 @@ trap 'rm -rf "$tmpdir"' EXIT
     printf "llm_model,data,string,%s\n" "$(csv_escape "$MODEL")"
     if [ -n "$API_URL" ]; then
         printf "llm_api_url,data,string,%s\n" "$(csv_escape "$API_URL")"
-    fi
-
-    if [ -n "$TG_TOKEN" ]; then
-        printf "tg_token,data,string,%s\n" "$(csv_escape "$TG_TOKEN")"
-    fi
-    if [ -n "$TG_CHAT_IDS" ]; then
-        PRIMARY_TG_CHAT_ID="$(first_telegram_chat_id "$TG_CHAT_IDS")"
-        printf "tg_chat_id,data,string,%s\n" "$(csv_escape "$PRIMARY_TG_CHAT_ID")"
-        printf "tg_chat_ids,data,string,%s\n" "$(csv_escape "$TG_CHAT_IDS")"
     fi
 } > "$csv_file"
 

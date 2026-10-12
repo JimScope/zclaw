@@ -5,7 +5,6 @@
 #include "http_gate.h"
 #include "memory.h"
 #include "nvs_keys.h"
-#include "telegram_poll_policy.h"
 #include "text_buffer.h"
 #include "cJSON.h"
 #include "esp_http_client.h"
@@ -674,7 +673,6 @@ esp_err_t llm_request(const char *request_json, char *response_buf, size_t respo
     net_diag_snapshot_t snapshot_after = {0};
     char *fallback_body = NULL;
     int status = -1;
-    int http_gate_wait_ms = 0;
     bool gate_acquired = false;
 
     capture_net_diag_snapshot(&snapshot_before);
@@ -687,8 +685,7 @@ esp_err_t llm_request(const char *request_json, char *response_buf, size_t respo
         return ESP_ERR_INVALID_STATE;
     }
 
-    http_gate_wait_ms = (telegram_poll_timeout_for_backend(s_backend) * 1000) + 1000;
-    gate_acquired = http_gate_acquire("llm_request", pdMS_TO_TICKS(http_gate_wait_ms));
+    gate_acquired = http_gate_acquire("llm_request", pdMS_TO_TICKS(LLM_HTTP_GATE_WAIT_MS));
     if (!gate_acquired) {
         ESP_LOGE(TAG, "Timed out waiting for HTTP gate");
         capture_net_diag_snapshot(&snapshot_after);

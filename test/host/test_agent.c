@@ -31,26 +31,6 @@
     } \
 } while(0)
 
-static int s_telegram_pause_calls = 0;
-static int s_telegram_resume_calls = 0;
-static int s_telegram_pause_balance = 0;
-static int s_telegram_pause_max_balance = 0;
-
-void telegram_pause_polling(void)
-{
-    s_telegram_pause_calls++;
-    s_telegram_pause_balance++;
-    if (s_telegram_pause_balance > s_telegram_pause_max_balance) {
-        s_telegram_pause_max_balance = s_telegram_pause_balance;
-    }
-}
-
-void telegram_resume_polling(void)
-{
-    s_telegram_resume_calls++;
-    s_telegram_pause_balance--;
-}
-
 static int recv_channel_text(QueueHandle_t queue, char *out, size_t out_len)
 {
     channel_output_msg_t msg;
@@ -61,27 +41,6 @@ static int recv_channel_text(QueueHandle_t queue, char *out, size_t out_len)
     return 1;
 }
 
-static int recv_telegram_text(QueueHandle_t queue, char *out, size_t out_len)
-{
-    telegram_msg_t msg;
-    if (xQueueReceive(queue, &msg, 0) != pdTRUE) {
-        return 0;
-    }
-    snprintf(out, out_len, "%s", msg.text);
-    return 1;
-}
-
-static int recv_telegram_msg(QueueHandle_t queue, telegram_msg_t *out)
-{
-    if (!out) {
-        return 0;
-    }
-    if (xQueueReceive(queue, out, 0) != pdTRUE) {
-        return 0;
-    }
-    return 1;
-}
-
 static void reset_state(void)
 {
     mock_freertos_reset();
@@ -89,10 +48,6 @@ static void reset_state(void)
     mock_memory_reset();
     mock_ratelimit_reset();
     mock_tools_reset();
-    s_telegram_pause_calls = 0;
-    s_telegram_resume_calls = 0;
-    s_telegram_pause_balance = 0;
-    s_telegram_pause_max_balance = 0;
     mock_llm_set_backend(LLM_BACKEND_ANTHROPIC, "mock-anthropic");
     agent_test_reset();
 }
@@ -100,18 +55,15 @@ static void reset_state(void)
 TEST(retries_with_backoff_and_fanout)
 {
     QueueHandle_t channel_q;
-    QueueHandle_t telegram_q;
-    char text[TELEGRAM_MAX_MSG_LEN];
+    char text[CHANNEL_TX_BUF_SIZE];
     const char *success =
         "{\"content\":[{\"type\":\"text\",\"text\":\"retry succeeded\"}],\"stop_reason\":\"end_turn\"}";
 
     reset_state();
 
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
-    telegram_q = xQueueCreate(4, sizeof(telegram_msg_t));
     ASSERT(channel_q != NULL);
-    ASSERT(telegram_q != NULL);
-    agent_test_set_queues(channel_q, telegram_q);
+    agent_test_set_queues(channel_q);
 
     ASSERT(mock_llm_push_result(ESP_FAIL, NULL));
     ASSERT(mock_llm_push_result(ESP_FAIL, NULL));
@@ -127,11 +79,8 @@ TEST(retries_with_backoff_and_fanout)
 
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
     ASSERT_STR_EQ(text, "retry succeeded");
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
-    ASSERT_STR_EQ(text, "retry succeeded");
 
     vQueueDelete(channel_q);
-    vQueueDelete(telegram_q);
     return 0;
 }
 
@@ -144,7 +93,7 @@ TEST(rate_limit_short_circuit)
 
     channel_q = xQueueCreate(2, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
     mock_ratelimit_set_allow(false, "Rate limit hit");
 
     agent_test_process_message("hello");
@@ -168,7 +117,7 @@ TEST(fails_after_max_retries_without_extra_sleep)
 
     channel_q = xQueueCreate(2, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
 
     ASSERT(mock_llm_push_result(ESP_FAIL, NULL));
     ASSERT(mock_llm_push_result(ESP_FAIL, NULL));
@@ -200,7 +149,7 @@ TEST(failed_turn_does_not_pollute_followup_prompt)
 
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
 
     ASSERT(mock_llm_push_result(ESP_FAIL, NULL));
     ASSERT(mock_llm_push_result(ESP_FAIL, NULL));
@@ -244,7 +193,7 @@ TEST(channel_output_allows_long_response)
 
     channel_q = xQueueCreate(2, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
 
     ASSERT(mock_llm_push_result(ESP_OK, response_json));
     agent_test_process_message("long output test");
@@ -260,16 +209,13 @@ TEST(channel_output_allows_long_response)
 TEST(start_command_bypasses_llm_and_debounces)
 {
     QueueHandle_t channel_q;
-    QueueHandle_t telegram_q;
-    char text[TELEGRAM_MAX_MSG_LEN];
+    char text[CHANNEL_TX_BUF_SIZE];
 
     reset_state();
 
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
-    telegram_q = xQueueCreate(4, sizeof(telegram_msg_t));
     ASSERT(channel_q != NULL);
-    ASSERT(telegram_q != NULL);
-    agent_test_set_queues(channel_q, telegram_q);
+    agent_test_set_queues(channel_q);
 
     agent_test_process_message("/start");
 
@@ -278,89 +224,70 @@ TEST(start_command_bypasses_llm_and_debounces)
 
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
     ASSERT(strstr(text, "zclaw online.") != NULL);
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
-    ASSERT(strstr(text, "zclaw online.") != NULL);
 
     // Immediate duplicate should be suppressed to stop burst spam.
     agent_test_process_message("/start");
     ASSERT(mock_llm_request_count() == 0);
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 0);
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 0);
 
     vQueueDelete(channel_q);
-    vQueueDelete(telegram_q);
     return 0;
 }
 
 TEST(stop_and_resume_pause_message_processing)
 {
     QueueHandle_t channel_q;
-    QueueHandle_t telegram_q;
-    char text[TELEGRAM_MAX_MSG_LEN];
+    char text[CHANNEL_TX_BUF_SIZE];
     const char *success =
         "{\"content\":[{\"type\":\"text\",\"text\":\"normal response\"}],\"stop_reason\":\"end_turn\"}";
 
     reset_state();
 
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
-    telegram_q = xQueueCreate(4, sizeof(telegram_msg_t));
     ASSERT(channel_q != NULL);
-    ASSERT(telegram_q != NULL);
-    agent_test_set_queues(channel_q, telegram_q);
+    agent_test_set_queues(channel_q);
 
     agent_test_process_message("/stop");
     ASSERT(mock_llm_request_count() == 0);
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
     ASSERT(strstr(text, "zclaw paused.") != NULL);
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
-    ASSERT(strstr(text, "/resume") != NULL);
 
     // While paused, regular messages are ignored and never hit the LLM.
     agent_test_process_message("hello");
     ASSERT(mock_llm_request_count() == 0);
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 0);
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 0);
 
     // /start should also be ignored while paused.
     agent_test_process_message("/start");
     ASSERT(mock_llm_request_count() == 0);
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 0);
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 0);
 
     agent_test_process_message("/resume");
     ASSERT(mock_llm_request_count() == 0);
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
     ASSERT(strstr(text, "zclaw resumed.") != NULL);
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
-    ASSERT(strstr(text, "/start") != NULL);
 
     ASSERT(mock_llm_push_result(ESP_OK, success));
     agent_test_process_message("hello");
     ASSERT(mock_llm_request_count() == 1);
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
     ASSERT_STR_EQ(text, "normal response");
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
-    ASSERT_STR_EQ(text, "normal response");
 
     vQueueDelete(channel_q);
-    vQueueDelete(telegram_q);
     return 0;
 }
 
 TEST(panel_command_shows_status_without_talking)
 {
     QueueHandle_t channel_q;
-    QueueHandle_t telegram_q;
-    char text[TELEGRAM_MAX_MSG_LEN];
+    char text[CHANNEL_TX_BUF_SIZE];
 
     reset_state();
     mock_display_reset();
 
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
-    telegram_q = xQueueCreate(4, sizeof(telegram_msg_t));
     ASSERT(channel_q != NULL);
-    ASSERT(telegram_q != NULL);
-    agent_test_set_queues(channel_q, telegram_q);
+    agent_test_set_queues(channel_q);
 
     mock_display_set_running(true);
     agent_test_process_message("/panel");
@@ -369,35 +296,28 @@ TEST(panel_command_shows_status_without_talking)
     ASSERT(mock_display_talking_calls() == 0);
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
     ASSERT(strstr(text, "Panel") != NULL);
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
-    ASSERT(strstr(text, "Panel") != NULL);
 
     mock_display_set_running(false);
     agent_test_process_message("/panel");
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
     ASSERT(strstr(text, "no disponible") != NULL);
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
 
     vQueueDelete(channel_q);
-    vQueueDelete(telegram_q);
     return 0;
 }
 
 TEST(dashboard_commands_request_remote_pages)
 {
     QueueHandle_t channel_q;
-    QueueHandle_t telegram_q;
-    char text[TELEGRAM_MAX_MSG_LEN];
+    char text[CHANNEL_TX_BUF_SIZE];
 
     reset_state();
     mock_display_reset();
     mock_display_set_running(true);
 
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
-    telegram_q = xQueueCreate(4, sizeof(telegram_msg_t));
     ASSERT(channel_q != NULL);
-    ASSERT(telegram_q != NULL);
-    agent_test_set_queues(channel_q, telegram_q);
+    agent_test_set_queues(channel_q);
 
     agent_test_process_message("/clima");
     ASSERT(mock_llm_request_count() == 0);
@@ -406,105 +326,81 @@ TEST(dashboard_commands_request_remote_pages)
     ASSERT(mock_display_talking_calls() == 0);
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
     ASSERT(strstr(text, "Clima") != NULL);
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
 
     agent_test_process_message("/cripto");
     ASSERT(strcmp(mock_display_last_dashboard(), "cripto") == 0);
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
     ASSERT(strstr(text, "Cripto") != NULL);
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
 
     mock_display_set_running(false);
     agent_test_process_message("/clima");
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
     ASSERT(strstr(text, "no disponible") != NULL);
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
 
     vQueueDelete(channel_q);
-    vQueueDelete(telegram_q);
     return 0;
 }
 
 TEST(help_and_settings_commands_bypass_llm)
 {
     QueueHandle_t channel_q;
-    QueueHandle_t telegram_q;
-    char text[TELEGRAM_MAX_MSG_LEN];
+    char text[CHANNEL_TX_BUF_SIZE];
 
     reset_state();
 
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
-    telegram_q = xQueueCreate(4, sizeof(telegram_msg_t));
     ASSERT(channel_q != NULL);
-    ASSERT(telegram_q != NULL);
-    agent_test_set_queues(channel_q, telegram_q);
+    agent_test_set_queues(channel_q);
 
     agent_test_process_message("/help");
     ASSERT(mock_llm_request_count() == 0);
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
     ASSERT(strstr(text, "zclaw online.") != NULL);
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
-    ASSERT(strstr(text, "zclaw online.") != NULL);
 
     agent_test_process_message("/settings");
     ASSERT(mock_llm_request_count() == 0);
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
-    ASSERT(strstr(text, "Message intake: active") != NULL);
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
     ASSERT(strstr(text, "Message intake: active") != NULL);
 
     // /settings should remain available while paused.
     agent_test_process_message("/stop");
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
     agent_test_process_message("/settings");
     ASSERT(mock_llm_request_count() == 0);
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
     ASSERT(strstr(text, "Message intake: paused") != NULL);
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
-    ASSERT(strstr(text, "Message intake: paused") != NULL);
 
     vQueueDelete(channel_q);
-    vQueueDelete(telegram_q);
     return 0;
 }
 
 TEST(diag_command_bypasses_llm_and_uses_tool)
 {
     QueueHandle_t channel_q;
-    QueueHandle_t telegram_q;
-    char text[TELEGRAM_MAX_MSG_LEN];
+    char text[CHANNEL_TX_BUF_SIZE];
 
     reset_state();
 
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
-    telegram_q = xQueueCreate(4, sizeof(telegram_msg_t));
     ASSERT(channel_q != NULL);
-    ASSERT(telegram_q != NULL);
-    agent_test_set_queues(channel_q, telegram_q);
+    agent_test_set_queues(channel_q);
 
     agent_test_process_message("/diag memory verbose");
     ASSERT(mock_llm_request_count() == 0);
     ASSERT(mock_tools_execute_calls() == 1);
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
     ASSERT_STR_EQ(text, "mock tool executed");
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
-    ASSERT_STR_EQ(text, "mock tool executed");
 
     // /diag should remain available while paused.
     agent_test_process_message("/stop");
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
     agent_test_process_message("/diag all");
     ASSERT(mock_llm_request_count() == 0);
     ASSERT(mock_tools_execute_calls() == 2);
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
     ASSERT_STR_EQ(text, "mock tool executed");
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
-    ASSERT_STR_EQ(text, "mock tool executed");
 
     vQueueDelete(channel_q);
-    vQueueDelete(telegram_q);
     return 0;
 }
 
@@ -517,7 +413,7 @@ TEST(diag_command_rejects_invalid_args)
 
     channel_q = xQueueCreate(2, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
 
     agent_test_process_message("/diag bananas");
     ASSERT(mock_llm_request_count() == 0);
@@ -532,34 +428,26 @@ TEST(diag_command_rejects_invalid_args)
 TEST(gpio_command_bypasses_llm_and_uses_tool)
 {
     QueueHandle_t channel_q;
-    QueueHandle_t telegram_q;
-    char text[TELEGRAM_MAX_MSG_LEN];
+    char text[CHANNEL_TX_BUF_SIZE];
 
     reset_state();
 
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
-    telegram_q = xQueueCreate(4, sizeof(telegram_msg_t));
     ASSERT(channel_q != NULL);
-    ASSERT(telegram_q != NULL);
-    agent_test_set_queues(channel_q, telegram_q);
+    agent_test_set_queues(channel_q);
 
     agent_test_process_message("/gpio all");
     ASSERT(mock_llm_request_count() == 0);
     ASSERT(mock_tools_execute_calls() == 1);
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
     ASSERT_STR_EQ(text, "mock tool executed");
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
-    ASSERT_STR_EQ(text, "mock tool executed");
 
     agent_test_process_message("/stop");
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
     agent_test_process_message("/gpio 7");
     ASSERT(mock_llm_request_count() == 0);
     ASSERT(mock_tools_execute_calls() == 2);
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
-    ASSERT_STR_EQ(text, "mock tool executed");
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
     ASSERT_STR_EQ(text, "mock tool executed");
 
     agent_test_process_message("/gpio 9 low");
@@ -567,11 +455,8 @@ TEST(gpio_command_bypasses_llm_and_uses_tool)
     ASSERT(mock_tools_execute_calls() == 3);
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
     ASSERT_STR_EQ(text, "mock tool executed");
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
-    ASSERT_STR_EQ(text, "mock tool executed");
 
     vQueueDelete(channel_q);
-    vQueueDelete(telegram_q);
     return 0;
 }
 
@@ -584,7 +469,7 @@ TEST(gpio_command_rejects_invalid_args)
 
     channel_q = xQueueCreate(2, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
 
     agent_test_process_message("/gpio nope");
     ASSERT(mock_llm_request_count() == 0);
@@ -611,28 +496,22 @@ TEST(gpio_command_rejects_invalid_args)
 TEST(local_admin_commands_are_local_only)
 {
     QueueHandle_t channel_q;
-    QueueHandle_t telegram_q;
-    char text[TELEGRAM_MAX_MSG_LEN];
+    char text[CHANNEL_TX_BUF_SIZE];
 
     reset_state();
 
     channel_q = xQueueCreate(2, sizeof(channel_output_msg_t));
-    telegram_q = xQueueCreate(2, sizeof(telegram_msg_t));
     ASSERT(channel_q != NULL);
-    ASSERT(telegram_q != NULL);
-    agent_test_set_queues(channel_q, telegram_q);
+    agent_test_set_queues(channel_q);
 
-    agent_test_process_message_for_chat("/wifi status", -100222333444LL);
+    agent_test_process_voice_message("/wifi status");
     ASSERT(mock_llm_request_count() == 0);
     ASSERT(mock_tools_execute_calls() == 0);
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
-    ASSERT(strstr(text, "only available on the USB serial console") != NULL);
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
     ASSERT(strstr(text, "only available on the USB serial console") != NULL);
     ASSERT(local_admin_test_last_action() == LOCAL_ADMIN_ACTION_NONE);
 
     vQueueDelete(channel_q);
-    vQueueDelete(telegram_q);
     return 0;
 }
 
@@ -645,7 +524,7 @@ TEST(local_admin_commands_bypass_llm_and_report_state)
 
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
     local_admin_test_set_wifi_status("WiFi status: provisioned=yes safe_mode=no driver=started link=connected ssid=Trident ip=10.0.0.24 rssi=-77 last_reason=none");
     local_admin_test_set_wifi_scan("WiFi scan: 2 APs visible (top 2)\n- Trident rssi=-77 auth=WPA2_PSK ch=6 (2437MHz)\n- Guest rssi=-88 auth=OPEN ch=1 (2412MHz)");
     local_admin_set_safe_mode(true);
@@ -684,7 +563,7 @@ TEST(local_admin_reboot_and_factory_reset_commands)
 
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
     mock_memory_set_kv("wifi_ssid", "Trident");
     mock_memory_set_kv("api_key", "test-key");
 
@@ -723,7 +602,7 @@ TEST(persona_phrases_route_through_llm)
 
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
 
     ASSERT(mock_llm_push_result(ESP_OK, reply_one));
     agent_test_process_message("set persona witty");
@@ -767,7 +646,7 @@ TEST(persona_can_change_via_llm_tool_call)
 
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
 
     ASSERT(mock_llm_push_result(ESP_OK, tool_call));
     ASSERT(mock_llm_push_result(ESP_OK, final_text));
@@ -805,7 +684,7 @@ TEST(cron_trigger_blocks_cron_set_tool_call)
 
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
 
     ASSERT(mock_llm_push_result(ESP_OK, tool_call));
     ASSERT(mock_llm_push_result(ESP_OK, final_text));
@@ -828,35 +707,28 @@ TEST(cron_trigger_blocks_cron_set_tool_call)
 TEST(repeated_non_command_is_suppressed)
 {
     QueueHandle_t channel_q;
-    QueueHandle_t telegram_q;
-    char text[TELEGRAM_MAX_MSG_LEN];
+    char text[CHANNEL_TX_BUF_SIZE];
     const char *success =
         "{\"content\":[{\"type\":\"text\",\"text\":\"hi there\"}],\"stop_reason\":\"end_turn\"}";
 
     reset_state();
 
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
-    telegram_q = xQueueCreate(4, sizeof(telegram_msg_t));
     ASSERT(channel_q != NULL);
-    ASSERT(telegram_q != NULL);
-    agent_test_set_queues(channel_q, telegram_q);
+    agent_test_set_queues(channel_q);
 
     ASSERT(mock_llm_push_result(ESP_OK, success));
     agent_test_process_message("What can you do");
     ASSERT(mock_llm_request_count() == 1);
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
     ASSERT_STR_EQ(text, "hi there");
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 1);
-    ASSERT_STR_EQ(text, "hi there");
 
     // Immediate repeat should be dropped and not trigger another LLM call.
     agent_test_process_message("What can you do");
     ASSERT(mock_llm_request_count() == 1);
     ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 0);
-    ASSERT(recv_telegram_text(telegram_q, text, sizeof(text)) == 0);
 
     vQueueDelete(channel_q);
-    vQueueDelete(telegram_q);
     return 0;
 }
 
@@ -871,7 +743,7 @@ TEST(repeated_non_command_not_suppressed_after_failure)
 
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
 
     ASSERT(mock_llm_push_result(ESP_FAIL, NULL));
     ASSERT(mock_llm_push_result(ESP_FAIL, NULL));
@@ -895,111 +767,6 @@ TEST(repeated_non_command_not_suppressed_after_failure)
     return 0;
 }
 
-TEST(telegram_response_preserves_reply_chat_id)
-{
-    QueueHandle_t channel_q;
-    QueueHandle_t telegram_q;
-    telegram_msg_t msg;
-    const char *success =
-        "{\"content\":[{\"type\":\"text\",\"text\":\"targeted reply\"}],\"stop_reason\":\"end_turn\"}";
-
-    reset_state();
-
-    channel_q = xQueueCreate(2, sizeof(channel_output_msg_t));
-    telegram_q = xQueueCreate(2, sizeof(telegram_msg_t));
-    ASSERT(channel_q != NULL);
-    ASSERT(telegram_q != NULL);
-    agent_test_set_queues(channel_q, telegram_q);
-
-    ASSERT(mock_llm_push_result(ESP_OK, success));
-    agent_test_process_message_for_chat("hello", -100222333444LL);
-
-    ASSERT(recv_telegram_msg(telegram_q, &msg) == 1);
-    ASSERT_STR_EQ(msg.text, "targeted reply");
-    ASSERT(msg.chat_id == -100222333444LL);
-
-    vQueueDelete(channel_q);
-    vQueueDelete(telegram_q);
-    return 0;
-}
-
-TEST(llm_turn_pauses_telegram_polling)
-{
-    QueueHandle_t channel_q;
-    char text[CHANNEL_TX_BUF_SIZE];
-    const char *success =
-        "{\"content\":[{\"type\":\"text\",\"text\":\"reply\"}],\"stop_reason\":\"end_turn\"}";
-
-    reset_state();
-
-    channel_q = xQueueCreate(2, sizeof(channel_output_msg_t));
-    ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
-
-    ASSERT(mock_llm_push_result(ESP_OK, success));
-    agent_test_process_message("hello");
-
-    ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
-    ASSERT_STR_EQ(text, "reply");
-    ASSERT(s_telegram_pause_calls == 1);
-    ASSERT(s_telegram_resume_calls == 1);
-    ASSERT(s_telegram_pause_balance == 0);
-    ASSERT(s_telegram_pause_max_balance == 1);
-
-    vQueueDelete(channel_q);
-    return 0;
-}
-
-TEST(failed_llm_turn_resumes_telegram_polling)
-{
-    QueueHandle_t channel_q;
-    char text[CHANNEL_TX_BUF_SIZE];
-
-    reset_state();
-
-    channel_q = xQueueCreate(2, sizeof(channel_output_msg_t));
-    ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
-
-    ASSERT(mock_llm_push_result(ESP_FAIL, NULL));
-    ASSERT(mock_llm_push_result(ESP_FAIL, NULL));
-    ASSERT(mock_llm_push_result(ESP_FAIL, NULL));
-
-    agent_test_process_message("hello");
-
-    ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
-    ASSERT_STR_EQ(text, "Error: Failed to contact LLM API after retries");
-    ASSERT(s_telegram_pause_calls == 1);
-    ASSERT(s_telegram_resume_calls == 1);
-    ASSERT(s_telegram_pause_balance == 0);
-    ASSERT(s_telegram_pause_max_balance == 1);
-
-    vQueueDelete(channel_q);
-    return 0;
-}
-
-TEST(command_turn_does_not_pause_telegram_polling)
-{
-    QueueHandle_t channel_q;
-    char text[CHANNEL_TX_BUF_SIZE];
-
-    reset_state();
-
-    channel_q = xQueueCreate(2, sizeof(channel_output_msg_t));
-    ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
-
-    agent_test_process_message("/settings");
-
-    ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
-    ASSERT(s_telegram_pause_calls == 0);
-    ASSERT(s_telegram_resume_calls == 0);
-    ASSERT(s_telegram_pause_balance == 0);
-
-    vQueueDelete(channel_q);
-    return 0;
-}
-
 TEST(reply_shows_answer_page_with_prompt)
 {
     QueueHandle_t channel_q;
@@ -1013,7 +780,7 @@ TEST(reply_shows_answer_page_with_prompt)
     mock_display_set_running(true);
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
     ASSERT(mock_llm_push_result(ESP_OK, reply));
 
     agent_test_process_message("que hora es en Madrid");
@@ -1042,7 +809,7 @@ TEST(cron_reply_shows_task_header)
     mock_display_set_running(true);
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
     ASSERT(mock_llm_push_result(ESP_OK, reply));
 
     agent_test_process_message("[CRON 3] dime el clima de hoy");
@@ -1066,7 +833,7 @@ TEST(command_reply_shows_answer_page)
     mock_display_set_running(true);
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
 
     agent_test_process_message("/help");
 
@@ -1089,7 +856,7 @@ TEST(dashboard_commands_do_not_show_answer)
     mock_display_set_running(true);
     channel_q = xQueueCreate(8, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
 
     agent_test_process_message("/panel");
     agent_test_process_message("/clima");
@@ -1114,7 +881,7 @@ TEST(screen_hint_in_prompt_only_with_display)
     mock_display_reset();
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
 
     mock_display_set_running(true);
     ASSERT(mock_llm_push_result(ESP_OK, reply));
@@ -1145,7 +912,7 @@ TEST(cron_reply_goes_to_task_log)
     mock_task_log_reset();
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
     ASSERT(mock_llm_push_result(ESP_OK, reply));
 
     agent_test_process_message("[CRON 5] recuerdame la medicina");
@@ -1168,7 +935,7 @@ TEST(serial_reply_is_not_logged)
     mock_task_log_reset();
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
     ASSERT(mock_llm_push_result(ESP_OK, reply));
 
     agent_test_process_message("hola");
@@ -1192,7 +959,7 @@ TEST(voice_reply_shows_dijiste_header)
     mock_display_set_running(true);
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
     ASSERT(mock_llm_push_result(ESP_OK, reply));
 
     agent_test_process_voice_message("que hora es");
@@ -1216,7 +983,7 @@ TEST(repeated_voice_message_is_answered_twice)
     reset_state();
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
     ASSERT(mock_llm_push_result(ESP_OK, reply));
     ASSERT(mock_llm_push_result(ESP_OK, reply));
 
@@ -1239,7 +1006,7 @@ TEST(escucha_and_mic_commands)
     mock_voice_reset();
     channel_q = xQueueCreate(8, sizeof(channel_output_msg_t));
     ASSERT(channel_q != NULL);
-    agent_test_set_queues(channel_q, NULL);
+    agent_test_set_queues(channel_q);
 
     mock_voice_set_running(true);
     agent_test_process_message("/escucha");
@@ -1418,34 +1185,6 @@ int test_agent_all(void)
 
     printf("  repeated_non_command_not_suppressed_after_failure... ");
     if (test_repeated_non_command_not_suppressed_after_failure() == 0) {
-        printf("OK\n");
-    } else {
-        failures++;
-    }
-
-    printf("  telegram_response_preserves_reply_chat_id... ");
-    if (test_telegram_response_preserves_reply_chat_id() == 0) {
-        printf("OK\n");
-    } else {
-        failures++;
-    }
-
-    printf("  llm_turn_pauses_telegram_polling... ");
-    if (test_llm_turn_pauses_telegram_polling() == 0) {
-        printf("OK\n");
-    } else {
-        failures++;
-    }
-
-    printf("  failed_llm_turn_resumes_telegram_polling... ");
-    if (test_failed_llm_turn_resumes_telegram_polling() == 0) {
-        printf("OK\n");
-    } else {
-        failures++;
-    }
-
-    printf("  command_turn_does_not_pause_telegram_polling... ");
-    if (test_command_turn_does_not_pause_telegram_polling() == 0) {
         printf("OK\n");
     } else {
         failures++;

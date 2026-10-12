@@ -34,22 +34,6 @@ menu "zclaw Configuration"
             When enabled, returns hardcoded responses instead of calling the LLM API.
             Useful for testing without WiFi (QEMU emulator).
 
-    config ZCLAW_TELEGRAM_ENABLE
-        bool "Enable the Telegram channel"
-        default y
-        help
-            When off, the board never initialises or starts Telegram: no
-            getUpdates polling, no TLS session, no startup message. Replies go
-            to the serial console and the screen, and memory_export writes to
-            the SD card instead.
-
-    config ZCLAW_STUB_TELEGRAM
-        bool "Stub Telegram (for QEMU testing)"
-        default n
-        help
-            When enabled, skips Telegram initialization.
-            Useful for testing without WiFi.
-
     config ZCLAW_WEB_OTA_ENABLE
         bool "Firmware upload page on the LAN (port 80)"
         default n
@@ -76,7 +60,7 @@ menu "zclaw Configuration"
             Targets without USB Serial/JTAG default to UART automatically.
 
     config ZCLAW_EMULATOR_MODE
-        bool "Offline emulator mode (skip WiFi/NTP/Telegram startup)"
+        bool "Offline emulator mode (skip WiFi/NTP startup)"
         default n
         help
             Starts only local channel + agent loop, without WiFi-dependent startup.
@@ -252,8 +236,7 @@ menu "zclaw Configuration"
             string "Base URL of the dashboard image service (/clima, /cripto)"
             default "http://bolita-cubana.duckdns.org/dash"
             help
-                Plain http:// skips the HTTP gate (no TLS memory), so the image
-                does not wait for a Telegram long-poll; https:// waits for it.
+                Plain http:// skips the HTTP gate (no TLS memory); https:// waits for it.
             depends on ZCLAW_DISPLAY_ENABLE
 
         config ZCLAW_DASH_TOKEN

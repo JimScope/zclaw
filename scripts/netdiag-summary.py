@@ -25,14 +25,9 @@ class OpStats:
     statuses: Counter[int] = field(default_factory=Counter)
     errs: Counter[str] = field(default_factory=Counter)
     errnos: Counter[int] = field(default_factory=Counter)
-    stale_polls: int = 0
-    stale_updates: int = 0
-    new_updates: int = 0
 
 
 def field_str(line: str, key: str) -> str | None:
-    if key == "op" and "op=flush getUpdates" in line:
-        return "flush_getUpdates"
     match = re.search(rf"\b{re.escape(key)}=([^ ]+)", line)
     return match.group(1) if match else None
 
@@ -96,16 +91,6 @@ def parse_netdiag_lines(lines: Iterable[str]) -> dict[str, OpStats]:
         if errno_value is not None:
             op_stats.errnos[errno_value] += 1
 
-        stale = field_int(line, "stale")
-        if stale is not None:
-            op_stats.stale_updates += stale
-            if stale > 0:
-                op_stats.stale_polls += 1
-
-        new_updates = field_int(line, "new")
-        if new_updates is not None:
-            op_stats.new_updates += new_updates
-
     return dict(stats)
 
 
@@ -150,12 +135,6 @@ def print_summary(stats: dict[str, OpStats]) -> int:
         print(f"  err_top={top_k(op_stats.errs)}")
         print(f"  errno_top={top_k(op_stats.errnos)}")
 
-        if op == "getUpdates":
-            print(
-                f"  telegram_stale polls_with_stale={op_stats.stale_polls} "
-                f"stale_updates={op_stats.stale_updates} new_updates={op_stats.new_updates}"
-            )
-
     return 0
 
 
@@ -172,7 +151,7 @@ def main() -> int:
         "--op",
         action="append",
         default=[],
-        help="Only include one or more operations (e.g. --op getUpdates --op llm_request)",
+        help="Only include one or more operations (e.g. --op llm_request)",
     )
     args = parser.parse_args()
 

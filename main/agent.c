@@ -11,7 +11,6 @@
 #include "ratelimit.h"
 #include "memory.h"
 #include "nvs_keys.h"
-#include "telegram.h"
 #include "display.h"
 #include "task_log.h"
 #include "voice.h"
@@ -38,7 +37,6 @@ static const char *TAG = "agent";
 // Queues
 static QueueHandle_t s_input_queue;
 static QueueHandle_t s_channel_output_queue;
-static QueueHandle_t s_telegram_output_queue;
 static int64_t s_last_start_response_us = 0;
 static int64_t s_last_non_command_response_us = 0;
 static char s_last_non_command_text[CHANNEL_RX_BUF_SIZE] = {0};
@@ -177,30 +175,13 @@ static void queue_channel_response(const char *text)
     }
 }
 
-static void queue_telegram_response(const char *text, int64_t chat_id)
-{
-    if (!s_telegram_output_queue) {
-        return;
-    }
-
-    telegram_msg_t msg;
-    strncpy(msg.text, text, TELEGRAM_MAX_MSG_LEN - 1);
-    msg.text[TELEGRAM_MAX_MSG_LEN - 1] = '\0';
-    msg.chat_id = chat_id;
-
-    if (xQueueSend(s_telegram_output_queue, &msg, pdMS_TO_TICKS(1000)) != pdTRUE) {
-        ESP_LOGE(TAG, "Failed to send response to Telegram queue");
-    }
-}
-
-static void send_response(const char *text, int64_t chat_id)
+static void send_response(const char *text)
 {
     (void)display_show_answer(s_reply_label, s_reply_prompt, text ? text : "");
     if (s_reply_is_task) {
         task_log_append(s_reply_prompt, text ? text : "");
     }
     queue_channel_response(text);
-    queue_telegram_response(text, chat_id);
 }
 
 #ifndef TEST_BUILD
@@ -243,7 +224,7 @@ static void load_persona_from_store(void)
     ESP_LOGI(TAG, "Loaded persona: %s", agent_persona_name(s_persona));
 }
 
-static void handle_diag_command(const char *user_message, int64_t chat_id, request_metrics_t *metrics)
+static void handle_diag_command(const char *user_message, request_metrics_t *metrics)
 {
     char error[120] = {0};
     cJSON *tool_input = cJSON_CreateObject();
@@ -251,13 +232,13 @@ static void handle_diag_command(const char *user_message, int64_t chat_id, reque
     int64_t started_us;
 
     if (!tool_input) {
-        send_response("Error: diagnostics unavailable (allocation failed)", chat_id);
+        send_response("Error: diagnostics unavailable (allocation failed)");
         metrics_log_request(metrics, "diag_no_mem");
         return;
     }
 
     if (!agent_parse_diag_command_args(user_message, tool_input, error, sizeof(error))) {
-        send_response(error, chat_id);
+        send_response(error);
         cJSON_Delete(tool_input);
         metrics_log_request(metrics, "diag_invalid_args");
         return;
@@ -274,16 +255,16 @@ static void handle_diag_command(const char *user_message, int64_t chat_id, reque
         if (s_tool_result_buf[0] == '\0') {
             snprintf(s_tool_result_buf, sizeof(s_tool_result_buf), "Error: diagnostics failed");
         }
-        send_response(s_tool_result_buf, chat_id);
+        send_response(s_tool_result_buf);
         metrics_log_request(metrics, "diag_failed");
         return;
     }
 
-    send_response(s_tool_result_buf, chat_id);
+    send_response(s_tool_result_buf);
     metrics_log_request(metrics, "diag_handled");
 }
 
-static void handle_gpio_command(const char *user_message, int64_t chat_id, request_metrics_t *metrics)
+static void handle_gpio_command(const char *user_message, request_metrics_t *metrics)
 {
     char error[120] = {0};
     cJSON *tool_input = cJSON_CreateObject();
@@ -292,13 +273,13 @@ static void handle_gpio_command(const char *user_message, int64_t chat_id, reque
     int64_t started_us;
 
     if (!tool_input) {
-        send_response("Error: GPIO read unavailable (allocation failed)", chat_id);
+        send_response("Error: GPIO read unavailable (allocation failed)");
         metrics_log_request(metrics, "gpio_no_mem");
         return;
     }
 
     if (!agent_parse_gpio_command_args(user_message, &tool_name, tool_input, error, sizeof(error))) {
-        send_response(error, chat_id);
+        send_response(error);
         cJSON_Delete(tool_input);
         metrics_log_request(metrics, "gpio_invalid_args");
         return;
@@ -315,12 +296,12 @@ static void handle_gpio_command(const char *user_message, int64_t chat_id, reque
         if (s_tool_result_buf[0] == '\0') {
             snprintf(s_tool_result_buf, sizeof(s_tool_result_buf), "Error: GPIO read failed");
         }
-        send_response(s_tool_result_buf, chat_id);
+        send_response(s_tool_result_buf);
         metrics_log_request(metrics, "gpio_failed");
         return;
     }
 
-    send_response(s_tool_result_buf, chat_id);
+    send_response(s_tool_result_buf);
     metrics_log_request(metrics, "gpio_handled");
 }
 
@@ -333,40 +314,39 @@ static bool is_local_admin_command(const char *user_message)
 
 static void handle_local_admin_command(const char *user_message,
                                        message_source_t source,
-                                       int64_t chat_id,
                                        request_metrics_t *metrics)
 {
     char response[CHANNEL_TX_BUF_SIZE];
     local_admin_action_t action = LOCAL_ADMIN_ACTION_NONE;
 
     if (source != MSG_SOURCE_CHANNEL) {
-        send_response("Error: local admin commands are only available on the USB serial console.", chat_id);
+        send_response("Error: local admin commands are only available on the USB serial console.");
         metrics_log_request(metrics, "local_admin_remote_denied");
         return;
     }
 
     if (agent_is_command(user_message, "diag")) {
-        handle_diag_command(user_message, chat_id, metrics);
+        handle_diag_command(user_message, metrics);
         return;
     }
 
     if (agent_is_command(user_message, "gpio")) {
-        handle_gpio_command(user_message, chat_id, metrics);
+        handle_gpio_command(user_message, metrics);
         return;
     }
 
     if (!local_admin_handle_command(user_message, response, sizeof(response), &action)) {
-        send_response(response, chat_id);
+        send_response(response);
         metrics_log_request(metrics, "local_admin_invalid");
         return;
     }
 
-    send_response(response, chat_id);
+    send_response(response);
     metrics_log_request(metrics, "local_admin_handled");
     local_admin_perform_action(action);
 }
 
-static void handle_start_command(int64_t chat_id)
+static void handle_start_command(void)
 {
     static const char *START_HELP_TEXT =
         "zclaw online.\n\n"
@@ -395,10 +375,10 @@ static void handle_start_command(int64_t chat_id)
         "- /wifi [status|scan]\n"
         "- /bootcount\n"
         "- /factory-reset confirm";
-    send_response(START_HELP_TEXT, chat_id);
+    send_response(START_HELP_TEXT);
 }
 
-static void handle_settings_command(int64_t chat_id)
+static void handle_settings_command(void)
 {
     char settings_text[384];
     snprintf(settings_text, sizeof(settings_text),
@@ -412,19 +392,11 @@ static void handle_settings_command(int64_t chat_id)
              "- Device settings are global (e.g., timezone <name>)",
              s_messages_paused ? "paused" : "active",
              agent_persona_name(s_persona));
-    send_response(settings_text, chat_id);
-}
-
-static int64_t response_chat_id_for_source(message_source_t source, int64_t chat_id)
-{
-    if (source == MSG_SOURCE_TELEGRAM && chat_id != 0) {
-        return chat_id;
-    }
-    return 0;
+    send_response(settings_text);
 }
 
 // Process a single user message
-static void process_message(const char *user_message, message_source_t source, int64_t reply_chat_id)
+static void process_message(const char *user_message, message_source_t source)
 {
     ESP_LOGI(TAG, "Processing: %s", user_message);
     int history_turn_start = s_history_len;
@@ -434,7 +406,6 @@ static void process_message(const char *user_message, message_source_t source, i
                   : source == MSG_SOURCE_VOICE ? "Dijiste:" : "T\xC3\xBA:";
     s_reply_prompt = is_cron_trigger ? agent_cron_trigger_body(user_message) : user_message;
     s_reply_is_task = is_cron_trigger;
-    bool telegram_polling_paused = false;
     request_metrics_t metrics = {
         .started_us = esp_timer_get_time(),
         .llm_us_total = 0,
@@ -446,24 +417,24 @@ static void process_message(const char *user_message, message_source_t source, i
 
     if (agent_is_command(user_message, "resume")) {
         if (!s_messages_paused) {
-            send_response("zclaw is already active.", reply_chat_id);
+            send_response("zclaw is already active.");
             metrics_log_request(&metrics, "resume_noop");
             return;
         }
         s_messages_paused = false;
-        send_response("zclaw resumed. Send /start for command help.", reply_chat_id);
+        send_response("zclaw resumed. Send /start for command help.");
         metrics_log_request(&metrics, "resumed");
         return;
     }
 
     if (agent_is_command(user_message, "settings")) {
-        handle_settings_command(reply_chat_id);
+        handle_settings_command();
         metrics_log_request(&metrics, "settings_handled");
         return;
     }
 
     if (is_local_admin_command(user_message)) {
-        handle_local_admin_command(user_message, source, reply_chat_id, &metrics);
+        handle_local_admin_command(user_message, source, &metrics);
         return;
     }
 
@@ -474,7 +445,7 @@ static void process_message(const char *user_message, message_source_t source, i
     }
 
     if (agent_is_command(user_message, "help")) {
-        handle_start_command(reply_chat_id);
+        handle_start_command();
         metrics_log_request(&metrics, "help_handled");
         return;
     }
@@ -493,7 +464,7 @@ static void process_message(const char *user_message, message_source_t source, i
                  (unsigned long)esp_get_free_heap_size(),
                  (unsigned long)esp_get_minimum_free_heap_size(),
                  rssi, llm_get_model(), ota_get_version());
-        send_response(status_buf, reply_chat_id);
+        send_response(status_buf);
         metrics_log_request(&metrics, "status_handled");
         return;
     }
@@ -502,7 +473,6 @@ static void process_message(const char *user_message, message_source_t source, i
         // No answer page: the listening face must stay on screen.
         const char *reply = voice_request_listen() ? "Te escucho." : "Voz no disponible u ocupada.";
         queue_channel_response(reply);
-        queue_telegram_response(reply, reply_chat_id);
         metrics_log_request(&metrics, "escucha_handled");
         return;
     }
@@ -512,7 +482,6 @@ static void process_message(const char *user_message, message_source_t source, i
                                 ? "Micr\xC3\xB3" "fono en pantalla 20 s (y por serie)."
                                 : "Voz no disponible.";
         queue_channel_response(reply);
-        queue_telegram_response(reply, reply_chat_id);
         metrics_log_request(&metrics, "mic_handled");
         return;
     }
@@ -523,7 +492,6 @@ static void process_message(const char *user_message, message_source_t source, i
                                 ? "Panel en pantalla 30 s."
                                 : "Pantalla no disponible.";
         queue_channel_response(reply);
-        queue_telegram_response(reply, reply_chat_id);
         metrics_log_request(&metrics, "panel_handled");
         return;
     }
@@ -538,7 +506,6 @@ static void process_message(const char *user_message, message_source_t source, i
         }
         // Same as /panel: no talking animation over the dashboard.
         queue_channel_response(reply);
-        queue_telegram_response(reply, reply_chat_id);
         metrics_log_request(&metrics, weather ? "clima_handled" : "cripto_handled");
         return;
     }
@@ -546,14 +513,14 @@ static void process_message(const char *user_message, message_source_t source, i
     if (agent_is_command(user_message, "temp")) {
         char temp_buf[128];
         tools_chip_temp_handler(NULL, temp_buf, sizeof(temp_buf));
-        send_response(temp_buf, reply_chat_id);
+        send_response(temp_buf);
         metrics_log_request(&metrics, "temp_handled");
         return;
     }
 
     if (agent_is_command(user_message, "stop")) {
         s_messages_paused = true;
-        send_response("zclaw paused. I will ignore new messages until /resume.", reply_chat_id);
+        send_response("zclaw paused. I will ignore new messages until /resume.");
         metrics_log_request(&metrics, "paused");
         return;
     }
@@ -573,7 +540,7 @@ static void process_message(const char *user_message, message_source_t source, i
         }
 
         s_last_start_response_us = now_us;
-        handle_start_command(reply_chat_id);
+        handle_start_command();
         metrics_log_request(&metrics, "start_handled");
         return;
     }
@@ -604,9 +571,6 @@ static void process_message(const char *user_message, message_source_t source, i
     led_thinking_start();
     display_notify_thinking(true);
 
-    telegram_pause_polling();
-    telegram_polling_paused = true;
-
     // Add user message to history
     history_add("user", user_message, false, false, NULL, NULL);
 
@@ -630,9 +594,7 @@ static void process_message(const char *user_message, message_source_t source, i
         if (!request) {
             ESP_LOGE(TAG, "Failed to build request JSON");
             history_rollback_to(history_turn_start, "request build failed");
-            send_response("Error: Failed to build request", reply_chat_id);
-            telegram_resume_polling();
-            telegram_polling_paused = false;
+            send_response("Error: Failed to build request");
             metrics_log_request(&metrics, "request_build_error");
             return;
         }
@@ -644,9 +606,7 @@ static void process_message(const char *user_message, message_source_t source, i
         if (!ratelimit_check(rate_reason, sizeof(rate_reason))) {
             free(request);
             history_rollback_to(history_turn_start, "rate limited");
-            send_response(rate_reason, reply_chat_id);
-            telegram_resume_polling();
-            telegram_polling_paused = false;
+            send_response(rate_reason);
             metrics_log_request(&metrics, "rate_limited");
             return;
         }
@@ -715,9 +675,7 @@ static void process_message(const char *user_message, message_source_t source, i
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "LLM request failed after %d retries", LLM_MAX_RETRIES);
             history_rollback_to(history_turn_start, "llm request failed");
-            send_response("Error: Failed to contact LLM API after retries", reply_chat_id);
-            telegram_resume_polling();
-            telegram_polling_paused = false;
+            send_response("Error: Failed to contact LLM API after retries");
             metrics_log_request(&metrics, "llm_error");
             return;
         }
@@ -737,10 +695,8 @@ static void process_message(const char *user_message, message_source_t source, i
                                   &tool_input)) {
             ESP_LOGE(TAG, "Failed to parse response");
             history_rollback_to(history_turn_start, "llm response parse failed");
-            send_response("Error: Failed to parse LLM response", reply_chat_id);
+            send_response("Error: Failed to parse LLM response");
             json_free_parsed_response();
-            telegram_resume_polling();
-            telegram_polling_paused = false;
             metrics_log_request(&metrics, "parse_error");
             return;
         }
@@ -801,10 +757,10 @@ static void process_message(const char *user_message, message_source_t source, i
             // Text response - we're done
             if (text_out[0] != '\0') {
                 history_add("assistant", text_out, false, false, NULL, NULL);
-                send_response(text_out, reply_chat_id);
+                send_response(text_out);
             } else {
                 history_add("assistant", "(No response from Claude)", false, false, NULL, NULL);
-                send_response("(No response from Claude)", reply_chat_id);
+                send_response("(No response from Claude)");
             }
             json_free_parsed_response();
             done = true;
@@ -814,9 +770,7 @@ static void process_message(const char *user_message, message_source_t source, i
     if (!done) {
         ESP_LOGW(TAG, "Max tool rounds reached");
         history_add("assistant", "(Reached max tool iterations)", false, false, NULL, NULL);
-        send_response("(Reached max tool iterations)", reply_chat_id);
-        telegram_resume_polling();
-        telegram_polling_paused = false;
+        send_response("(Reached max tool iterations)");
         metrics_log_request(&metrics, "max_rounds");
         return;
     }
@@ -825,10 +779,6 @@ static void process_message(const char *user_message, message_source_t source, i
         strncpy(s_last_non_command_text, user_message, sizeof(s_last_non_command_text) - 1);
         s_last_non_command_text[sizeof(s_last_non_command_text) - 1] = '\0';
         s_last_non_command_response_us = esp_timer_get_time();
-    }
-
-    if (telegram_polling_paused) {
-        telegram_resume_polling();
     }
 
     metrics_log_request(&metrics, "success");
@@ -842,7 +792,6 @@ void agent_test_reset(void)
     memset(s_response_buf, 0, sizeof(s_response_buf));
     memset(s_tool_result_buf, 0, sizeof(s_tool_result_buf));
     s_channel_output_queue = NULL;
-    s_telegram_output_queue = NULL;
     s_last_start_response_us = 0;
     s_last_non_command_response_us = 0;
     memset(s_last_non_command_text, 0, sizeof(s_last_non_command_text));
@@ -852,26 +801,19 @@ void agent_test_reset(void)
     load_persona_from_store();
 }
 
-void agent_test_set_queues(QueueHandle_t channel_output_queue,
-                           QueueHandle_t telegram_output_queue)
+void agent_test_set_queues(QueueHandle_t channel_output_queue)
 {
     s_channel_output_queue = channel_output_queue;
-    s_telegram_output_queue = telegram_output_queue;
 }
 
 void agent_test_process_message(const char *user_message)
 {
-    process_message(user_message, MSG_SOURCE_CHANNEL, 0);
-}
-
-void agent_test_process_message_for_chat(const char *user_message, int64_t reply_chat_id)
-{
-    process_message(user_message, MSG_SOURCE_TELEGRAM, reply_chat_id);
+    process_message(user_message, MSG_SOURCE_CHANNEL);
 }
 
 void agent_test_process_voice_message(const char *user_message)
 {
-    process_message(user_message, MSG_SOURCE_VOICE, 0);
+    process_message(user_message, MSG_SOURCE_VOICE);
 }
 #endif
 
@@ -886,7 +828,7 @@ static void agent_task(void *arg)
     while (1) {
         if (xQueueReceive(s_input_queue, &msg, portMAX_DELAY) == pdTRUE) {
             s_busy = true;
-            process_message(msg.text, msg.source, response_chat_id_for_source(msg.source, msg.chat_id));
+            process_message(msg.text, msg.source);
             // Single stop point: covers every exit path of process_message.
             led_thinking_stop();
             display_notify_thinking(false);
@@ -897,9 +839,7 @@ static void agent_task(void *arg)
     }
 }
 
-esp_err_t agent_start(QueueHandle_t input_queue,
-                      QueueHandle_t channel_output_queue,
-                      QueueHandle_t telegram_output_queue)
+esp_err_t agent_start(QueueHandle_t input_queue, QueueHandle_t channel_output_queue)
 {
     if (!input_queue || !channel_output_queue) {
         ESP_LOGE(TAG, "Invalid queues for agent startup");
@@ -908,7 +848,6 @@ esp_err_t agent_start(QueueHandle_t input_queue,
 
     s_input_queue = input_queue;
     s_channel_output_queue = channel_output_queue;
-    s_telegram_output_queue = telegram_output_queue;
     load_persona_from_store();
 
     if (xTaskCreate(agent_task, "agent", AGENT_TASK_STACK_SIZE, NULL,

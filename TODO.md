@@ -7,8 +7,8 @@ Hoy la WiFi primaria vive en NVS (`wifi_ssid`/`wifi_pass`, escrita por
 `_PASSWORD`) y `CONFIG_ZCLAW_VENDEL_API_KEY` se compilan en el firmware.
 
 Problemas:
-- Quedan en texto plano dentro de `zclaw.bin` (`strings` las muestra), y cada
-  OTA por Telegram deja una copia del binario en sus servidores.
+- Quedan en texto plano dentro de `zclaw.bin` (`strings` las muestra), y el .bin
+  viaja por la red en cada OTA.
 - Un build sin el `sdkconfig`/`sdkconfig.defaults.esp32c6` correcto se instala
   sin error y pierde el respaldo y los SMS en silencio (el arranque es estable,
   así que el rollback no salta).

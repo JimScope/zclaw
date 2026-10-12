@@ -37,7 +37,7 @@ TOOL_ENTRY("ota_update",
            "{\"type\":\"object\",\"properties\":{\"url\":{\"type\":\"string\"}},\"required\":[\"url\"]}",
            tools_ota_update_handler)
 TOOL_ENTRY("memory_export",
-           "Backup: send all saved user memories (u_*) to the owner's Telegram chat.",
+           "Write all stored memories to a dated text file on the SD card.",
            "{\"type\":\"object\",\"properties\":{}}",
            tools_memory_export_handler)
 TOOL_ENTRY("sms_send",

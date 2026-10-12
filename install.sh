@@ -487,7 +487,7 @@ flash_mode_name() {
 print_first_boot_steps() {
     echo -e "  ${DIM}1.${NC} Run ${CYAN}./scripts/provision.sh${NC} (or use install prompt)"
     echo -e "  ${DIM}2.${NC} Enter required values: ${CYAN}WiFi SSID, LLM provider, API key${NC}"
-    echo -e "  ${DIM}3.${NC} WiFi password and Telegram token/chat ID are optional"
+    echo -e "  ${DIM}3.${NC} WiFi password is optional"
     echo -e "  ${DIM}4.${NC} Reboot the board after provisioning"
     echo -e "  ${DIM}5.${NC} Open ${CYAN}./scripts/monitor.sh${NC} to confirm WiFi connect + ready logs"
 }

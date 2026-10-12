@@ -29,9 +29,6 @@ TEST(user_key_prefix)
 TEST(sensitive_exact_keys)
 {
     ASSERT(memory_keys_is_sensitive(NVS_KEY_API_KEY));
-    ASSERT(memory_keys_is_sensitive(NVS_KEY_TG_TOKEN));
-    ASSERT(memory_keys_is_sensitive(NVS_KEY_TG_CHAT_ID));
-    ASSERT(memory_keys_is_sensitive(NVS_KEY_TG_CHAT_IDS));
     ASSERT(memory_keys_is_sensitive(NVS_KEY_WIFI_PASS));
     ASSERT(memory_keys_is_sensitive(NVS_KEY_LLM_BACKEND));
     ASSERT(memory_keys_is_sensitive(NVS_KEY_LLM_MODEL));

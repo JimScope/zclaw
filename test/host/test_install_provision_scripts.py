@@ -17,7 +17,6 @@ INSTALL_SH = PROJECT_ROOT / "install.sh"
 KCONFIG_PROJBUILD = PROJECT_ROOT / "main" / "Kconfig.projbuild"
 PROVISION_SH = PROJECT_ROOT / "scripts" / "provision.sh"
 PROVISION_DEV_SH = PROJECT_ROOT / "scripts" / "provision-dev.sh"
-TELEGRAM_CLEAR_SH = PROJECT_ROOT / "scripts" / "telegram-clear-backlog.sh"
 ERASE_SH = PROJECT_ROOT / "scripts" / "erase.sh"
 BUILD_SH = PROJECT_ROOT / "scripts" / "build.sh"
 FLASH_SH = PROJECT_ROOT / "scripts" / "flash.sh"
@@ -765,7 +764,6 @@ LAST_PORT=
         *,
         ssid: str,
         wifi_pass: str,
-        tg_chat_ids: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
@@ -797,8 +795,6 @@ LAST_PORT=
                 "--api-key",
                 "sk-test",
             ]
-            if tg_chat_ids is not None:
-                cmd.extend(["--tg-chat-id", tg_chat_ids])
 
             return subprocess.run(
                 cmd,
@@ -969,16 +965,6 @@ LAST_PORT=
         self.assertNotEqual(proc.returncode, 0, msg=output)
         self.assertIn("password exceeds 63 bytes", output)
 
-    def test_provision_rejects_more_than_4_telegram_chat_ids(self) -> None:
-        proc = self._run_provision_length_validation(
-            ssid="HomeNetwork",
-            wifi_pass="password123",
-            tg_chat_ids="1,2,3,4,5",
-        )
-        output = f"{proc.stdout}\n{proc.stderr}"
-        self.assertNotEqual(proc.returncode, 0, msg=output)
-        self.assertIn("Use 1-4 non-zero integers", output)
-
     def test_provision_interactive_openai_model_menu_accepts_curated_choice(self) -> None:
         proc, captured_csv = self._run_provision_capture_csv(
             backend="openai",
@@ -1028,76 +1014,6 @@ LAST_PORT=
         self.assertIn('llm_backend,data,string,"ollama"', captured_csv)
         self.assertIn('llm_model,data,string,"qwen3:8b"', captured_csv)
         self.assertIn('llm_api_url,data,string,"http://127.0.0.1:11434/v1/chat/completions"', captured_csv)
-
-    def test_provision_writes_chat_id_allowlist_and_legacy_primary_key(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
-            home = tmp / "home"
-            idf_dir = home / "esp" / "esp-idf"
-            nvs_gen = idf_dir / "components" / "nvs_flash" / "nvs_partition_generator" / "nvs_partition_gen.py"
-            parttool = idf_dir / "components" / "partition_table" / "parttool.py"
-            nvs_gen.parent.mkdir(parents=True, exist_ok=True)
-            parttool.parent.mkdir(parents=True, exist_ok=True)
-            nvs_gen.write_text("# nvs generator stub path\n", encoding="utf-8")
-            parttool.write_text("# parttool stub path\n", encoding="utf-8")
-            (idf_dir / "export.sh").write_text(
-                "export IDF_PATH=\"$HOME/esp/esp-idf\"\n",
-                encoding="utf-8",
-            )
-
-            bin_dir = tmp / "bin"
-            bin_dir.mkdir(parents=True, exist_ok=True)
-            _write_executable(
-                bin_dir / "python",
-                "#!/bin/sh\n"
-                "if [ \"$2\" = \"generate\" ]; then\n"
-                "  cp \"$3\" \"$CSV_CAPTURE\"\n"
-                "  : > \"$4\"\n"
-                "  exit 0\n"
-                "fi\n"
-                "exit 0\n",
-            )
-
-            env = os.environ.copy()
-            env["HOME"] = str(home)
-            env["PATH"] = f"{bin_dir}:/usr/bin:/bin:/usr/sbin:/sbin"
-            env["TERM"] = "dumb"
-            env["CSV_CAPTURE"] = str(tmp / "captured-nvs.csv")
-
-            proc = subprocess.run(
-                [
-                    str(PROVISION_SH),
-                    "--yes",
-                    "--skip-api-check",
-                    "--port",
-                    "/dev/null",
-                    "--ssid",
-                    "HomeNetwork",
-                    "--pass",
-                    "password123",
-                    "--backend",
-                    "openai",
-                    "--api-key",
-                    "sk-test",
-                    "--tg-token",
-                    "123456789:abcdef",
-                    "--tg-chat-id",
-                    "7585013353,-100222333444",
-                ],
-                cwd=PROJECT_ROOT,
-                env=env,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-
-            output = f"{proc.stdout}\n{proc.stderr}"
-            self.assertEqual(proc.returncode, 0, msg=output)
-
-            captured_csv = (tmp / "captured-nvs.csv").read_text(encoding="utf-8")
-            self.assertIn('llm_model,data,string,"gpt-5.4"', captured_csv)
-            self.assertIn('tg_chat_id,data,string,"7585013353"', captured_csv)
-            self.assertIn('tg_chat_ids,data,string,"7585013353,-100222333444"', captured_csv)
 
     def test_provision_ollama_writes_normalized_api_url_without_api_key(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -1390,8 +1306,6 @@ LAST_PORT=
                         "ZCLAW_BACKEND=openai",
                         "ZCLAW_MODEL=gpt-5.2",
                         "ZCLAW_API_KEY=sk-test-1234567890",
-                        "ZCLAW_TG_TOKEN=123456789:abcdef",
-                        "ZCLAW_TG_CHAT_ID=7585013353",
                         "",
                     ]
                 ),
@@ -1425,10 +1339,6 @@ LAST_PORT=
             self.assertIn("Trident", args_text)
             self.assertIn("--api-key", args_text)
             self.assertIn("sk-test-1234567890", args_text)
-            self.assertIn("--tg-token", args_text)
-            self.assertIn("123456789:abcdef", args_text)
-            self.assertIn("Telegram bot ID: 123456789", output)
-            self.assertNotIn("123456789:abcdef", output)
             self.assertNotIn("sk-test-1234567890", output)
 
     def test_provision_dev_uses_provider_specific_env_key(self) -> None:
@@ -1479,57 +1389,6 @@ LAST_PORT=
             self.assertIn("openrouter", args_text)
             self.assertIn("--api-key", args_text)
             self.assertIn("or-sk-test-xyz", args_text)
-
-    def test_provision_dev_forwards_multi_telegram_chat_ids(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
-            env_file = tmp / "dev.env"
-            args_file = tmp / "args.txt"
-            stub = tmp / "mock-provision.sh"
-
-            _write_executable(
-                stub,
-                "#!/bin/sh\n"
-                "printf '%s\\n' \"$@\" > \"$ARGS_FILE\"\n",
-            )
-            env_file.write_text(
-                "\n".join(
-                    [
-                        "ZCLAW_WIFI_SSID=Trident",
-                        "ZCLAW_BACKEND=openai",
-                        "ZCLAW_API_KEY=sk-test-1234567890",
-                        "ZCLAW_TG_TOKEN=123456789:abcdef",
-                        "ZCLAW_TG_CHAT_IDS=7585013353,-100222333444",
-                        "",
-                    ]
-                ),
-                encoding="utf-8",
-            )
-
-            env = os.environ.copy()
-            env["ARGS_FILE"] = str(args_file)
-            env["ZCLAW_PROVISION_SCRIPT"] = str(stub)
-
-            proc = subprocess.run(
-                [
-                    str(PROVISION_DEV_SH),
-                    "--env-file",
-                    str(env_file),
-                    "--show-config",
-                ],
-                cwd=PROJECT_ROOT,
-                env=env,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-
-            output = f"{proc.stdout}\n{proc.stderr}"
-            self.assertEqual(proc.returncode, 0, msg=output)
-            args_text = args_file.read_text(encoding="utf-8")
-            self.assertIn("--tg-chat-id", args_text)
-            self.assertIn("7585013353,-100222333444", args_text)
-            self.assertIn("Telegram chat ID(s):", output)
 
     def test_provision_dev_errors_when_key_missing(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -1655,127 +1514,6 @@ LAST_PORT=
             self.assertIn("http://192.168.1.10:11434/v1/chat/completions", args_text)
             self.assertNotIn("--api-key", args_text)
             self.assertIn("API URL: http://192.168.1.10:11434/v1/chat/completions", output)
-
-    def test_telegram_clear_backlog_errors_without_token(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
-            env_file = tmp / "dev.env"
-            env_file.write_text("# no token\n", encoding="utf-8")
-
-            env = os.environ.copy()
-            env.pop("ZCLAW_TG_TOKEN", None)
-
-            proc = subprocess.run(
-                [
-                    str(TELEGRAM_CLEAR_SH),
-                    "--env-file",
-                    str(env_file),
-                ],
-                cwd=PROJECT_ROOT,
-                env=env,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-
-        output = f"{proc.stdout}\n{proc.stderr}"
-        self.assertNotEqual(proc.returncode, 0, msg=output)
-        self.assertIn("Error: Telegram token not set.", output)
-
-    def test_telegram_clear_backlog_uses_profile_token_and_advances_offset(self) -> None:
-        with tempfile.TemporaryDirectory() as td:
-            tmp = Path(td)
-            env_file = tmp / "dev.env"
-            env_file.write_text(
-                "ZCLAW_TG_TOKEN=123456789:abcdef\n",
-                encoding="utf-8",
-            )
-
-            bin_dir = tmp / "bin"
-            bin_dir.mkdir(parents=True, exist_ok=True)
-            _write_executable(
-                bin_dir / "curl",
-                "#!/bin/sh\n"
-                "out=''\n"
-                "fmt=''\n"
-                "url=''\n"
-                "while [ $# -gt 0 ]; do\n"
-                "  case \"$1\" in\n"
-                "    -o) out=\"$2\"; shift 2 ;;\n"
-                "    -w) fmt=\"$2\"; shift 2 ;;\n"
-                "    --connect-timeout|--max-time) shift 2 ;;\n"
-                "    -s|-S|-sS) shift ;;\n"
-                "    *) url=\"$1\"; shift ;;\n"
-                "  esac\n"
-                "done\n"
-                "printf '%s\\n' \"$url\" >> \"$CURL_URLS_FILE\"\n"
-                "code='200'\n"
-                "if echo \"$url\" | grep -q 'offset=-1'; then\n"
-                "  body='{\"ok\":true,\"result\":[{\"update_id\":4242}]}'\n"
-                "elif echo \"$url\" | grep -q 'offset=4243'; then\n"
-                "  body='{\"ok\":true,\"result\":[]}'\n"
-                "else\n"
-                "  code='400'\n"
-                "  body='{\"ok\":false,\"error_code\":400,\"description\":\"bad offset\"}'\n"
-                "fi\n"
-                "if [ -n \"$out\" ]; then\n"
-                "  printf '%s' \"$body\" > \"$out\"\n"
-                "fi\n"
-                "if [ -n \"$fmt\" ]; then\n"
-                "  printf '%s' \"$code\"\n"
-                "else\n"
-                "  printf '%s' \"$body\"\n"
-                "fi\n",
-            )
-
-            env = os.environ.copy()
-            env["PATH"] = f"{bin_dir}:/usr/bin:/bin"
-            env["CURL_URLS_FILE"] = str(tmp / "urls.txt")
-            env.pop("ZCLAW_TG_TOKEN", None)
-
-            proc = subprocess.run(
-                [
-                    str(TELEGRAM_CLEAR_SH),
-                    "--env-file",
-                    str(env_file),
-                    "--show-config",
-                ],
-                cwd=PROJECT_ROOT,
-                env=env,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-
-            urls = (tmp / "urls.txt").read_text(encoding="utf-8")
-
-        output = f"{proc.stdout}\n{proc.stderr}"
-        self.assertEqual(proc.returncode, 0, msg=output)
-        self.assertIn("Cleared Telegram backlog up to update_id=4242", output)
-        self.assertIn("Bot ID: 123456789", output)
-        self.assertNotIn("123456789:abcdef", output)
-        self.assertIn("offset=-1", urls)
-        self.assertIn("offset=4243", urls)
-
-    def test_telegram_clear_backlog_dry_run(self) -> None:
-        proc = subprocess.run(
-            [
-                str(TELEGRAM_CLEAR_SH),
-                "--token",
-                "123456789:abcdef",
-                "--dry-run",
-            ],
-            cwd=PROJECT_ROOT,
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-
-        output = f"{proc.stdout}\n{proc.stderr}"
-        self.assertEqual(proc.returncode, 0, msg=output)
-        self.assertIn("Dry run requests:", output)
-        self.assertIn("offset=-1", output)
-        self.assertIn("offset=<latest+1>", output)
 
 
 if __name__ == "__main__":

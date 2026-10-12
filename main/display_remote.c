@@ -16,7 +16,6 @@
 #include "http_gate.h"
 #include "jpeg_strip.h"
 #include "rom_tjpgd.h"
-#include "telegram.h"
 
 #define FETCH_TASK_STACK   8192
 #define FETCH_TASK_PRIO    2
@@ -100,17 +99,13 @@ uint8_t *display_remote_download(const char *url, size_t *out_len, bool *server_
         *server_error = false;
     }
     if (strncmp(url, "https://", 8) == 0) {
-        // TLS costs ~40 KB, so it goes through the HTTP gate. The poll task
-        // re-takes the gate immediately: pause it and wait here.
-        telegram_pause_polling();
+        // TLS costs ~40 KB, so it goes through the HTTP gate.
         if (http_gate_acquire("dashboard", pdMS_TO_TICKS(FETCH_GATE_WAIT_MS))) {
             jpeg = download(url, out_len, server_error);
             http_gate_release();
         }
-        telegram_resume_polling();
     } else {
-        // Plain HTTP needs a few KB: no gate, so a Telegram long-poll in
-        // flight does not delay the picture.
+        // Plain HTTP needs a few KB: no gate.
         jpeg = download(url, out_len, server_error);
     }
     return jpeg;

@@ -8,9 +8,7 @@
 #include <stdint.h>
 
 // Start the agent task
-esp_err_t agent_start(QueueHandle_t input_queue,
-                      QueueHandle_t channel_output_queue,
-                      QueueHandle_t telegram_output_queue);
+esp_err_t agent_start(QueueHandle_t input_queue, QueueHandle_t channel_output_queue);
 
 // True while the agent task processes a message (voice ignores claps then).
 bool agent_is_busy(void);
@@ -18,10 +16,8 @@ bool agent_is_busy(void);
 #ifdef TEST_BUILD
 // Test-only helpers to drive agent logic without spawning FreeRTOS tasks.
 void agent_test_reset(void);
-void agent_test_set_queues(QueueHandle_t channel_output_queue,
-                           QueueHandle_t telegram_output_queue);
+void agent_test_set_queues(QueueHandle_t channel_output_queue);
 void agent_test_process_message(const char *user_message);
-void agent_test_process_message_for_chat(const char *user_message, int64_t reply_chat_id);
 void agent_test_process_voice_message(const char *user_message);
 #endif
 

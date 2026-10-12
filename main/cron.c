@@ -549,7 +549,6 @@ static void check_entries(void)
         channel_msg_t msg;
         snprintf(msg.text, sizeof(msg.text), "[CRON %d] %s", s_pending_fires[i].id, s_pending_fires[i].action);
         msg.source = MSG_SOURCE_CRON;
-        msg.chat_id = 0;
 
         if (xQueueSend(s_agent_queue, &msg, pdMS_TO_TICKS(100)) != pdTRUE) {
             ESP_LOGW(TAG, "Agent queue full, cron action dropped");

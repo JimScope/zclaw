@@ -31,22 +31,8 @@ bool agent_is_command(const char *message, const char *name)
     }
     cursor += name_len;
 
-    // Accept "/<name>", "/<name> payload", and "/<name>@bot payload".
-    if (*cursor == '\0' || is_whitespace_char(*cursor)) {
-        return true;
-    }
-    if (*cursor != '@') {
-        return false;
-    }
-    cursor++;
-    if (*cursor == '\0') {
-        return false;
-    }
-    while (*cursor && !is_whitespace_char(*cursor)) {
-        cursor++;
-    }
-
-    return true;
+    // Accept "/<name>" and "/<name> payload".
+    return *cursor == '\0' || is_whitespace_char(*cursor);
 }
 
 const char *agent_command_payload(const char *message, const char *name)
@@ -65,13 +51,6 @@ const char *agent_command_payload(const char *message, const char *name)
     cursor = message + 1;
     name_len = strlen(name);
     cursor += name_len;
-
-    if (*cursor == '@') {
-        cursor++;
-        while (*cursor && !is_whitespace_char(*cursor)) {
-            cursor++;
-        }
-    }
 
     while (*cursor && is_whitespace_char(*cursor)) {
         cursor++;

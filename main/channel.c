@@ -214,7 +214,6 @@ static void channel_read_task(void *arg)
                     strncpy(msg.text, line_buf, CHANNEL_RX_BUF_SIZE - 1);
                     msg.text[CHANNEL_RX_BUF_SIZE - 1] = '\0';
                     msg.source = MSG_SOURCE_CHANNEL;
-                    msg.chat_id = 0;
 
                     if (xQueueSend(s_input_queue, &msg, pdMS_TO_TICKS(100)) != pdTRUE) {
                         ESP_LOGW(TAG, "Input queue full, dropping message");

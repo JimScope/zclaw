@@ -2,7 +2,6 @@
 #include "tools_common.h"
 #include "config.h"
 #include "http_gate.h"
-#include "telegram.h"
 
 #include "esp_crt_bundle.h"
 #include "esp_https_ota.h"
@@ -24,8 +23,6 @@ static void ota_restart_task(void *arg)
     (void)arg;
     // Give the agent time to deliver its final reply before rebooting.
     vTaskDelay(pdMS_TO_TICKS(OTA_RESTART_DELAY_MS));
-    // Make sure the message that asked for the update is not redelivered after boot.
-    telegram_ack_processed_updates();
     ESP_LOGW(TAG, "Restarting into new firmware");
     esp_restart();
 }

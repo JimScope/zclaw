@@ -4,7 +4,6 @@
 #include "agent.h"
 #include "llm.h"
 #include "tools.h"
-#include "telegram.h"
 #include "web_ota.h"
 #include "voice.h"
 #include "cron.h"
@@ -25,13 +24,6 @@
 #include "esp_err.h"
 #include "esp_system.h"
 #include "driver/gpio.h"
-
-// Telegram runs only when enabled and not stubbed (QEMU).
-#if CONFIG_ZCLAW_TELEGRAM_ENABLE && !CONFIG_ZCLAW_STUB_TELEGRAM
-#define ZCLAW_TELEGRAM_ACTIVE 1
-#else
-#define ZCLAW_TELEGRAM_ACTIVE 0
-#endif
 
 static const char *TAG = "main";
 static bool s_safe_mode = false;
@@ -177,7 +169,7 @@ void app_main(void)
     local_admin_set_safe_mode(s_safe_mode);
 
 #if CONFIG_ZCLAW_EMULATOR_MODE
-    ESP_LOGW(TAG, "Emulator mode enabled: skipping WiFi/NTP/Telegram startup");
+    ESP_LOGW(TAG, "Emulator mode enabled: skipping WiFi/NTP startup");
 #ifndef CONFIG_ZCLAW_STUB_LLM
     ESP_LOGW(TAG, "Stub LLM is disabled; without network, LLM requests may fail");
 #endif
@@ -199,7 +191,7 @@ void app_main(void)
         fail_fast_startup("channel_start", startup_err);
     }
 
-    startup_err = agent_start(input_queue, channel_output_queue, NULL);
+    startup_err = agent_start(input_queue, channel_output_queue);
     if (startup_err != ESP_OK) {
         fail_fast_startup("agent_start", startup_err);
     }
@@ -232,16 +224,6 @@ void app_main(void)
     // 6. Initialize rate limiter
     ratelimit_init();
 
-    // 7. Initialize Telegram config state
-#if !ZCLAW_TELEGRAM_ACTIVE
-    ESP_LOGW(TAG, "Telegram disabled (CONFIG_ZCLAW_TELEGRAM_ENABLE=n or stub); skipping Telegram startup");
-#else
-    esp_err_t telegram_init_err = telegram_init();  // Missing token is non-fatal
-    if (telegram_init_err != ESP_OK && telegram_init_err != ESP_ERR_NOT_FOUND) {
-        fail_fast_startup("telegram_init", telegram_init_err);
-    }
-#endif
-
     // 8. Register tools and local channel early so /gpio and /diag work before WiFi.
     tools_init();
     channel_init();
@@ -254,17 +236,8 @@ void app_main(void)
 
     QueueHandle_t input_queue = xQueueCreate(INPUT_QUEUE_LENGTH, sizeof(channel_msg_t));
     QueueHandle_t channel_output_queue = xQueueCreate(OUTPUT_QUEUE_LENGTH, sizeof(channel_output_msg_t));
-    QueueHandle_t telegram_output_queue = NULL;
-#if !ZCLAW_TELEGRAM_ACTIVE
-    bool telegram_enabled = false;
-#else
-    bool telegram_enabled = device_configured && !s_safe_mode && telegram_is_configured();
-#endif
-    if (telegram_enabled) {
-        telegram_output_queue = xQueueCreate(TELEGRAM_OUTPUT_QUEUE_LENGTH, sizeof(telegram_msg_t));
-    }
 
-    if (!input_queue || !channel_output_queue || (telegram_enabled && !telegram_output_queue)) {
+    if (!input_queue || !channel_output_queue) {
         ESP_LOGE(TAG, "Failed to create queues");
         esp_restart();
     }
@@ -274,7 +247,7 @@ void app_main(void)
         fail_fast_startup("channel_start", startup_err);
     }
 
-    startup_err = agent_start(input_queue, channel_output_queue, telegram_output_queue);
+    startup_err = agent_start(input_queue, channel_output_queue);
     if (startup_err != ESP_OK) {
         fail_fast_startup("agent_start", startup_err);
     }
@@ -337,14 +310,6 @@ void app_main(void)
         ESP_LOGW(TAG, "Voice unavailable: %s", esp_err_to_name(voice_err));
     }
 
-    // 13. Start Telegram channel
-    if (telegram_enabled) {
-        startup_err = telegram_start(input_queue, telegram_output_queue);
-        if (startup_err != ESP_OK) {
-            fail_fast_startup("telegram_start", startup_err);
-        }
-    }
-
     // 14. Start cron task
     startup_err = cron_start(input_queue);
     if (startup_err != ESP_OK) {
@@ -357,11 +322,6 @@ void app_main(void)
     ESP_LOGI(TAG, "  Ready! Free heap: %lu bytes", esp_get_free_heap_size());
     ESP_LOGI(TAG, "========================================");
     ESP_LOGI(TAG, "");
-
-    // 16. Send startup notification on Telegram
-    if (telegram_enabled && telegram_is_configured()) {
-        telegram_send_startup();
-    }
 
     // app_main returns - FreeRTOS scheduler continues running tasks
 #endif
