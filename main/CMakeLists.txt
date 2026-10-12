@@ -24,7 +24,6 @@ idf_component_register(
         "tools_i2c.c"
         "tools_dht.c"
         "tools_memory.c"
-        "tools_persona.c"
         "tools_cron.c"
         "tools_system.c"
         "memory.c"

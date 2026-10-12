@@ -54,12 +54,6 @@ bool agent_is_busy(void)
 static bool s_messages_paused = false;
 static char s_system_prompt_buf[AGENT_SYSTEM_PROMPT_BUF_SIZE];
 
-static agent_persona_t s_persona = AGENT_PERSONA_NEUTRAL;
-
-#ifdef TEST_BUILD
-static char s_test_persona_value[16] = {0};
-#endif
-
 // Conversation history (rolling message buffer)
 static conversation_msg_t s_history[MAX_HISTORY_TURNS * 2];
 static int s_history_len = 0;
@@ -182,46 +176,6 @@ static void send_response(const char *text)
         task_log_append(s_reply_prompt, text ? text : "");
     }
     queue_channel_response(text);
-}
-
-#ifndef TEST_BUILD
-static bool persona_store_get(char *value, size_t max_len)
-{
-    return memory_get(NVS_KEY_PERSONA, value, max_len);
-}
-#else
-static bool persona_store_get(char *value, size_t max_len)
-{
-    if (!value || max_len == 0 || s_test_persona_value[0] == '\0') {
-        return false;
-    }
-    strncpy(value, s_test_persona_value, max_len - 1);
-    value[max_len - 1] = '\0';
-    return true;
-}
-#endif
-
-static void load_persona_from_store(void)
-{
-    char stored[32] = {0};
-    agent_persona_t parsed = AGENT_PERSONA_NEUTRAL;
-
-    s_persona = AGENT_PERSONA_NEUTRAL;
-    if (!persona_store_get(stored, sizeof(stored))) {
-        return;
-    }
-
-    for (size_t i = 0; stored[i] != '\0'; i++) {
-        stored[i] = (char)tolower((unsigned char)stored[i]);
-    }
-
-    if (!agent_parse_persona_name(stored, &parsed)) {
-        ESP_LOGW(TAG, "Ignoring invalid stored persona '%s'", stored);
-        return;
-    }
-
-    s_persona = parsed;
-    ESP_LOGI(TAG, "Loaded persona: %s", agent_persona_name(s_persona));
 }
 
 static void handle_diag_command(const char *user_message, request_metrics_t *metrics)
@@ -358,7 +312,6 @@ static void handle_start_command(void)
         "- remember that GPIO 4 controls the arcade machine\n"
         "- create a tool called arcade_on that turns GPIO 4 on\n"
         "- turn the arcade on in 10 minutes\n"
-        "- switch to witty persona\n"
         "\n"
         "Chat commands:\n"
         "- /help (show this message)\n"
@@ -384,14 +337,11 @@ static void handle_settings_command(void)
     snprintf(settings_text, sizeof(settings_text),
              "zclaw settings:\n"
              "- Message intake: %s\n"
-             "- Persona: %s\n"
              "- Chat commands: /start, /help, /settings, /stop, /resume\n"
              "- USB local admin: /gpio, /diag, /reboot, /wifi, /bootcount, /factory-reset\n"
              "- /gpio supports reads and writes (e.g. /gpio 9 low)\n"
-             "- Persona changes: ask in normal chat (handled via tool calls)\n"
              "- Device settings are global (e.g., timezone <name>)",
-             s_messages_paused ? "paused" : "active",
-             agent_persona_name(s_persona));
+             s_messages_paused ? "paused" : "active");
     send_response(settings_text);
 }
 
@@ -583,7 +533,7 @@ static void process_message(const char *user_message, message_source_t source)
 
         // Build request JSON (user message already in history)
         char *request = json_build_request(
-            agent_build_system_prompt(s_persona, s_system_prompt_buf, sizeof(s_system_prompt_buf)),
+            agent_build_system_prompt(s_system_prompt_buf, sizeof(s_system_prompt_buf)),
             s_history,
             s_history_len,
             NULL,  // User message already in history
@@ -729,21 +679,9 @@ static void process_message(const char *user_message, message_source_t source)
             } else {
                 // Built-in tool: execute directly
                 int64_t tool_started_us = esp_timer_get_time();
-                bool tool_ok = tools_execute(tool_name, tool_input,
-                                             s_tool_result_buf, sizeof(s_tool_result_buf));
+                (void)tools_execute(tool_name, tool_input,
+                                  s_tool_result_buf, sizeof(s_tool_result_buf));
                 metrics.tool_us_total += elapsed_us_since(tool_started_us);
-
-                // Keep runtime persona state aligned when persona tools run via LLM.
-                if (tool_ok && strcmp(tool_name, "set_persona") == 0) {
-                    cJSON *persona_json = cJSON_GetObjectItem(tool_input, "persona");
-                    agent_persona_t parsed_persona = AGENT_PERSONA_NEUTRAL;
-                    if (persona_json && cJSON_IsString(persona_json) &&
-                        agent_parse_persona_name(persona_json->valuestring, &parsed_persona)) {
-                        s_persona = parsed_persona;
-                    }
-                } else if (tool_ok && strcmp(tool_name, "reset_persona") == 0) {
-                    s_persona = AGENT_PERSONA_NEUTRAL;
-                }
 
                 ESP_LOGI(TAG, "Tool result: %s", s_tool_result_buf);
             }
@@ -796,9 +734,7 @@ void agent_test_reset(void)
     s_last_non_command_response_us = 0;
     memset(s_last_non_command_text, 0, sizeof(s_last_non_command_text));
     s_messages_paused = false;
-    memset(s_test_persona_value, 0, sizeof(s_test_persona_value));
     local_admin_test_reset();
-    load_persona_from_store();
 }
 
 void agent_test_set_queues(QueueHandle_t channel_output_queue)
@@ -848,7 +784,6 @@ esp_err_t agent_start(QueueHandle_t input_queue, QueueHandle_t channel_output_qu
 
     s_input_queue = input_queue;
     s_channel_output_queue = channel_output_queue;
-    load_persona_from_store();
 
     if (xTaskCreate(agent_task, "agent", AGENT_TASK_STACK_SIZE, NULL,
                     AGENT_TASK_PRIORITY, NULL) != pdPASS) {

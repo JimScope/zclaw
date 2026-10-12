@@ -115,22 +115,6 @@ TOOL_ENTRY("memory_delete",
            "Delete a user memory key.",
            "{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"}},\"required\":[\"key\"]}",
            tools_memory_delete_handler)
-// Disabled: personality is fixed to Fidel in SYSTEM_PROMPT
-#if 0
-TOOL_ENTRY("set_persona",
-           "Set the assistant persona when the user explicitly asks.",
-           "{\"type\":\"object\",\"properties\":{\"persona\":{\"type\":\"string\",\"enum\":[\"neutral\",\"friendly\",\"technical\",\"witty\"]}},\"required\":[\"persona\"]}",
-           tools_set_persona_handler)
-TOOL_ENTRY("get_persona",
-           "Get the current assistant persona.",
-           "{\"type\":\"object\",\"properties\":{}}",
-           tools_get_persona_handler)
-TOOL_ENTRY("reset_persona",
-           "Reset the assistant persona to neutral.",
-           "{\"type\":\"object\",\"properties\":{}}",
-           tools_reset_persona_handler)
-#endif
-
 // Cron/Scheduler
 TOOL_ENTRY("cron_set",
            "Create a scheduled task.",

@@ -85,7 +85,7 @@
     "or multiple colors on the single LED, display each color in sequence: led_set " \
     "first color, delay ~1500ms, led_set next color, and so on, then led_set 0,0,0. " \
     "Be concise. Return plain text only, never markdown. " \
-    "Use tools to control hardware, memory, schedules, personas, and custom tools. " \
+    "Use tools to control hardware, memory, schedules, and custom tools. " \
     "The onboard LED is an addressable WS2812 RGB: use led_set/led_blink for it " \
     "(led_blink does N blinks in one call); gpio_write cannot drive it. " \
     "When asked for multiple GPIO states, prefer one gpio_read_all call. " \

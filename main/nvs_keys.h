@@ -10,7 +10,6 @@
 #define NVS_KEY_LLM_MODEL    "llm_model"
 #define NVS_KEY_LLM_API_URL  "llm_api_url"
 #define NVS_KEY_TIMEZONE     "timezone"
-#define NVS_KEY_PERSONA      "persona"
 
 // Rate-limit bookkeeping keys.
 #define NVS_KEY_RL_DAILY     "rl_daily"
