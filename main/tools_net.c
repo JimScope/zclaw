@@ -27,6 +27,7 @@ typedef struct {
     size_t len;
     size_t max;
     FILE *file;     // when set, the body goes to the file (up to max bytes)
+    bool failed;    // a file write came up short; later data is dropped
 } net_resp_ctx_t;
 
 static esp_err_t net_http_event(esp_http_client_event_t *evt)
@@ -36,10 +37,17 @@ static esp_err_t net_http_event(esp_http_client_event_t *evt)
         return ESP_OK;
     }
     if (ctx->file) {
+        if (ctx->failed) {
+            return ESP_OK;
+        }
         size_t space = ctx->max - ctx->len;
         size_t n = ((size_t)evt->data_len < space) ? (size_t)evt->data_len : space;
-        if (n > 0 && fwrite(evt->data, 1, n, ctx->file) == n) {
-            ctx->len += n;
+        if (n > 0) {
+            if (fwrite(evt->data, 1, n, ctx->file) == n) {
+                ctx->len += n;
+            } else {
+                ctx->failed = true;
+            }
         }
     } else if (ctx->buf) {
         size_t space = ctx->max - 1 - ctx->len;
@@ -97,18 +105,19 @@ static int net_http_request(const char *url, esp_http_client_method_t method,
                             const char *header_key, const char *header_value,
                             const char *post_body, char *out, size_t out_max)
 {
-    net_resp_ctx_t ctx = { .buf = out, .len = 0, .max = out_max, .file = NULL };
+    net_resp_ctx_t ctx = { .buf = out, .len = 0, .max = out_max, .file = NULL, .failed = false };
     out[0] = '\0';
     return net_http_perform(url, method, header_key, header_value, post_body, &ctx);
 }
 
-// GET into an open file; *written gets the body bytes kept (at most max).
+// GET into an open file (at most max bytes kept). *write_failed is set when a
+// file write came up short, in which case the file is incomplete.
 static int net_http_get_to_file(const char *url, const char *header_key, const char *header_value,
-                                FILE *file, size_t max, size_t *written)
+                                FILE *file, size_t max, bool *write_failed)
 {
-    net_resp_ctx_t ctx = { .buf = NULL, .len = 0, .max = max, .file = file };
+    net_resp_ctx_t ctx = { .buf = NULL, .len = 0, .max = max, .file = file, .failed = false };
     int status = net_http_perform(url, HTTP_METHOD_GET, header_key, header_value, NULL, &ctx);
-    *written = ctx.len;
+    *write_failed = ctx.failed;
     return status;
 }
 
@@ -290,8 +299,23 @@ static bool sd_cached_url_is(const char *url)
     return strcmp(cached, url) == 0;
 }
 
-// Fetches into the SD cache. Returns the HTTP status (-1 on transport or file error).
-static int sd_fetch(const char *url, size_t *text_len)
+typedef enum {
+    SD_FETCH_OK,         // *status/*text_len are valid (status may be an HTTP/transport error)
+    SD_FETCH_FILE_ERROR  // the SD file could not be written or read; use the RAM path
+} sd_fetch_result_t;
+
+static size_t sd_text_len(bool *ok)
+{
+    struct stat st;
+    *ok = stat(READ_WEB_TEXT, &st) == 0;
+    return *ok ? (size_t)st.st_size : 0;
+}
+
+// Fetches into the SD cache. HTTP and transport outcomes land in *status; an SD
+// file problem returns SD_FETCH_FILE_ERROR and url.txt is not written, so an
+// incomplete file is never served. *io_error is set for a real I/O error (short
+// write or failed close), not for a plain fopen failure.
+static sd_fetch_result_t sd_fetch(const char *url, int *status, size_t *text_len, bool *io_error)
 {
     char reader_url[256];
     reader_url_for(url, reader_url, sizeof(reader_url));
@@ -299,25 +323,29 @@ static int sd_fetch(const char *url, size_t *text_len)
     remove(READ_WEB_URL);       // no stale URL if the download fails
     FILE *f = fopen(READ_WEB_TEXT, "w");
     if (!f) {
-        return -1;
+        return SD_FETCH_FILE_ERROR;
     }
-    int status = net_http_get_to_file(reader_url, "User-Agent", "Mozilla/5.0 (zclaw-esp32)",
-                                      f, READ_WEB_SD_MAX, text_len);
-    fclose(f);
-    if (status >= 200 && status < 300) {
+    bool write_failed = false;
+    *status = net_http_get_to_file(reader_url, "User-Agent", "Mozilla/5.0 (zclaw-esp32)",
+                                   f, READ_WEB_SD_MAX, &write_failed);
+    bool close_failed = fclose(f) != 0;
+    if (write_failed || close_failed) {
+        *io_error = true;
+        return SD_FETCH_FILE_ERROR;
+    }
+    if (*status >= 200 && *status < 300) {
+        bool ok;
+        *text_len = sd_text_len(&ok);  // same source as cached calls, so page counts agree
+        if (!ok) {
+            return SD_FETCH_FILE_ERROR;
+        }
         FILE *u = fopen(READ_WEB_URL, "w");
         if (u) {
             fputs(url, u);
             fclose(u);
         }
     }
-    return status;
-}
-
-static size_t sd_text_len(void)
-{
-    struct stat st;
-    return stat(READ_WEB_TEXT, &st) == 0 ? (size_t)st.st_size : 0;
+    return SD_FETCH_OK;
 }
 
 static void format_page(const web_page_slice_t *s, const char *text, char *result, size_t result_len)
@@ -346,34 +374,51 @@ bool tools_read_web_handler(const cJSON *input, char *result, size_t result_len)
     char chunk[WEB_PAGE_SIZE + 1];
     web_page_slice_t s;
     int status = 200;
+    bool done = false;
 
     if (sd_card_begin()) {
         size_t len = 0;
+        bool io_error = false;
+        bool file_error = false;
         if (sd_cached_url_is(url->valuestring)) {
-            len = sd_text_len();
+            bool ok;
+            len = sd_text_len(&ok);
+            file_error = !ok;
         } else {
             if (!http_gate_acquire("read_web", pdMS_TO_TICKS(NET_TOOL_GATE_MS))) {
                 sd_card_end();
                 snprintf(result, result_len, "Error: HTTP busy, try again");
                 return false;
             }
-            status = sd_fetch(url->valuestring, &len);
+            file_error = sd_fetch(url->valuestring, &status, &len, &io_error) == SD_FETCH_FILE_ERROR;
             http_gate_release();
         }
         s = web_page_slice(len, page, WEB_PAGE_SIZE);
         chunk[0] = '\0';
-        if (status >= 200 && status < 300 && !s.past_end && s.len > 0) {
+        if (!file_error && status >= 200 && status < 300 && !s.past_end && s.len > 0) {
             FILE *f = fopen(READ_WEB_TEXT, "r");
             size_t n = 0;
             if (f) {
-                fseek(f, (long)s.start, SEEK_SET);
-                n = fread(chunk, 1, s.len, f);
+                if (fseek(f, (long)s.start, SEEK_SET) == 0) {
+                    n = fread(chunk, 1, s.len, f);
+                }
                 fclose(f);
             }
             chunk[n] = '\0';
+            if (n != s.len) {
+                file_error = true;
+                io_error = io_error || (f != NULL);
+            }
+        }
+        if (io_error) {
+            sd_card_mark_failed(esp_timer_get_time() / 1000);
         }
         sd_card_end();
-    } else {
+        done = !file_error;
+    }
+
+    // No card, a pulled card or an SD file failure: download into the heap.
+    if (!done) {
         char *text = malloc(READ_WEB_RAM_MAX);
         if (!text) {
             snprintf(result, result_len, "Error: out of memory for read_web");
