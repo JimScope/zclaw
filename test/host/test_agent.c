@@ -1179,6 +1179,90 @@ TEST(serial_reply_is_not_logged)
     return 0;
 }
 
+#include "mock_voice.h"
+
+TEST(voice_reply_shows_dijiste_header)
+{
+    QueueHandle_t channel_q;
+    const char *reply =
+        "{\"content\":[{\"type\":\"text\",\"text\":\"Son las tres.\"}],\"stop_reason\":\"end_turn\"}";
+
+    reset_state();
+    mock_display_reset();
+    mock_display_set_running(true);
+    channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
+    ASSERT(channel_q != NULL);
+    agent_test_set_queues(channel_q, NULL);
+    ASSERT(mock_llm_push_result(ESP_OK, reply));
+
+    agent_test_process_voice_message("que hora es");
+
+    ASSERT(mock_display_answer_calls() == 1);
+    ASSERT_STR_EQ(mock_display_last_answer_label(), "Dijiste:");
+    ASSERT_STR_EQ(mock_display_last_answer_prompt(), "que hora es");
+    ASSERT_STR_EQ(mock_display_last_answer_reply(), "Son las tres.");
+
+    vQueueDelete(channel_q);
+    mock_display_reset();
+    return 0;
+}
+
+TEST(repeated_voice_message_is_answered_twice)
+{
+    QueueHandle_t channel_q;
+    const char *reply =
+        "{\"content\":[{\"type\":\"text\",\"text\":\"Hola.\"}],\"stop_reason\":\"end_turn\"}";
+
+    reset_state();
+    channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
+    ASSERT(channel_q != NULL);
+    agent_test_set_queues(channel_q, NULL);
+    ASSERT(mock_llm_push_result(ESP_OK, reply));
+    ASSERT(mock_llm_push_result(ESP_OK, reply));
+
+    agent_test_process_voice_message("hola fidel");
+    agent_test_process_voice_message("hola fidel");
+
+    ASSERT(mock_llm_request_count() == 2);
+
+    vQueueDelete(channel_q);
+    return 0;
+}
+
+TEST(escucha_and_mic_commands)
+{
+    QueueHandle_t channel_q;
+    char text[CHANNEL_TX_BUF_SIZE];
+
+    reset_state();
+    mock_display_reset();
+    mock_voice_reset();
+    channel_q = xQueueCreate(8, sizeof(channel_output_msg_t));
+    ASSERT(channel_q != NULL);
+    agent_test_set_queues(channel_q, NULL);
+
+    mock_voice_set_running(true);
+    agent_test_process_message("/escucha");
+    ASSERT(mock_voice_listen_calls() == 1);
+    ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
+    ASSERT(strstr(text, "escucho") != NULL);
+    agent_test_process_message("/mic");
+    ASSERT(mock_voice_last_probe_ms() == 20000);
+    ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
+    ASSERT(strstr(text, "Micr") != NULL);
+    ASSERT(mock_llm_request_count() == 0);
+    ASSERT(mock_display_answer_calls() == 0);
+
+    mock_voice_set_running(false);
+    agent_test_process_message("/escucha");
+    ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
+    ASSERT(strstr(text, "Voz no disponible") != NULL);
+
+    vQueueDelete(channel_q);
+    mock_voice_reset();
+    return 0;
+}
+
 int test_agent_all(void)
 {
     int failures = 0;
@@ -1411,6 +1495,27 @@ int test_agent_all(void)
 
     printf("  serial_reply_is_not_logged... ");
     if (test_serial_reply_is_not_logged() == 0) {
+        printf("OK\n");
+    } else {
+        failures++;
+    }
+
+    printf("  voice_reply_shows_dijiste_header... ");
+    if (test_voice_reply_shows_dijiste_header() == 0) {
+        printf("OK\n");
+    } else {
+        failures++;
+    }
+
+    printf("  repeated_voice_message_is_answered_twice... ");
+    if (test_repeated_voice_message_is_answered_twice() == 0) {
+        printf("OK\n");
+    } else {
+        failures++;
+    }
+
+    printf("  escucha_and_mic_commands... ");
+    if (test_escucha_and_mic_commands() == 0) {
         printf("OK\n");
     } else {
         failures++;

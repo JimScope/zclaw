@@ -42,6 +42,7 @@ extern int test_task_log_format_all(void);
 extern int test_sd_access_all(void);
 extern int test_voice_audio_all(void);
 extern int test_voice_detect_all(void);
+extern int test_stt_reply_all(void);
 
 int main(int argc, char *argv[])
 {
@@ -87,6 +88,7 @@ int main(int argc, char *argv[])
     failures += test_sd_access_all();
     failures += test_voice_audio_all();
     failures += test_voice_detect_all();
+    failures += test_stt_reply_all();
 
     printf("\n===================\n");
     if (failures == 0) {

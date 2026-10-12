@@ -14,8 +14,10 @@
 #include "telegram.h"
 #include "display.h"
 #include "task_log.h"
+#include "voice.h"
 
 #define PANEL_DISPLAY_MS 30000
+#define MIC_PROBE_MS 20000
 #include "cJSON.h"
 #include "esp_timer.h"
 #include "esp_log.h"
@@ -45,6 +47,12 @@ static char s_last_non_command_text[CHANNEL_RX_BUF_SIZE] = {0};
 static const char *s_reply_label = "";
 static const char *s_reply_prompt = "";
 static bool s_reply_is_task = false;  // cron turn: replies go to the task log
+static volatile bool s_busy = false;  // agent task inside process_message
+
+bool agent_is_busy(void)
+{
+    return s_busy;
+}
 static bool s_messages_paused = false;
 static char s_system_prompt_buf[2048];
 
@@ -422,7 +430,8 @@ static void process_message(const char *user_message, message_source_t source, i
     int history_turn_start = s_history_len;
     bool is_non_command_message = !agent_is_slash_command(user_message);
     bool is_cron_trigger = agent_is_cron_trigger_message(user_message);
-    s_reply_label = is_cron_trigger ? "Tarea:" : "T\xC3\xBA:";
+    s_reply_label = is_cron_trigger ? "Tarea:"
+                  : source == MSG_SOURCE_VOICE ? "Dijiste:" : "T\xC3\xBA:";
     s_reply_prompt = is_cron_trigger ? agent_cron_trigger_body(user_message) : user_message;
     s_reply_is_task = is_cron_trigger;
     bool telegram_polling_paused = false;
@@ -489,6 +498,25 @@ static void process_message(const char *user_message, message_source_t source, i
         return;
     }
 
+    if (agent_is_command(user_message, "escucha")) {
+        // No answer page: the listening face must stay on screen.
+        const char *reply = voice_request_listen() ? "Te escucho." : "Voz no disponible u ocupada.";
+        queue_channel_response(reply);
+        queue_telegram_response(reply, reply_chat_id);
+        metrics_log_request(&metrics, "escucha_handled");
+        return;
+    }
+
+    if (agent_is_command(user_message, "mic")) {
+        const char *reply = voice_request_probe(MIC_PROBE_MS)
+                                ? "Micr\xC3\xB3" "fono en pantalla 20 s (y por serie)."
+                                : "Voz no disponible.";
+        queue_channel_response(reply);
+        queue_telegram_response(reply, reply_chat_id);
+        metrics_log_request(&metrics, "mic_handled");
+        return;
+    }
+
     if (agent_is_command(user_message, "panel")) {
         // Ack without display_notify_talking(): the talking face would cover the panel.
         const char *reply = display_request_status(PANEL_DISPLAY_MS)
@@ -550,7 +578,7 @@ static void process_message(const char *user_message, message_source_t source, i
         return;
     }
 
-    if (is_non_command_message) {
+    if (is_non_command_message && source != MSG_SOURCE_VOICE) {
         int64_t now_us = esp_timer_get_time();
         uint32_t since_last_ms = 0;
 
@@ -840,6 +868,11 @@ void agent_test_process_message_for_chat(const char *user_message, int64_t reply
 {
     process_message(user_message, MSG_SOURCE_TELEGRAM, reply_chat_id);
 }
+
+void agent_test_process_voice_message(const char *user_message)
+{
+    process_message(user_message, MSG_SOURCE_VOICE, 0);
+}
 #endif
 
 // Agent task
@@ -852,12 +885,14 @@ static void agent_task(void *arg)
 
     while (1) {
         if (xQueueReceive(s_input_queue, &msg, portMAX_DELAY) == pdTRUE) {
+            s_busy = true;
             process_message(msg.text, msg.source, response_chat_id_for_source(msg.source, msg.chat_id));
             // Single stop point: covers every exit path of process_message.
             led_thinking_stop();
             display_notify_thinking(false);
             s_reply_prompt = "";
             s_reply_is_task = false;
+            s_busy = false;
         }
     }
 }
