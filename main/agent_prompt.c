@@ -110,8 +110,9 @@ bool agent_parse_persona_name(const char *name, agent_persona_t *out)
 #define DISPLAY_PROMPT_HINT \
     " Your replies are shown as plain text on a small 240x240 screen (about 29 " \
     "characters x 11 lines per page): keep them short and never use markdown. " \
-    "To show the weather, crypto prices or the device panel use display_dashboard; " \
-    "for pictures use display_image."
+    "When the user asks to show or see the weather, crypto prices or the device " \
+    "panel (muestrame, ensename, pon), call display_dashboard instead of answering " \
+    "with text; for pictures use display_image."
 
 static const char *display_hint(void)
 {

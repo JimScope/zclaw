@@ -1121,6 +1121,7 @@ TEST(screen_hint_in_prompt_only_with_display)
     agent_test_process_message("hola");
     ASSERT(strstr(mock_llm_last_request_json(), "240x240 screen") != NULL);
     ASSERT(strstr(mock_llm_last_request_json(), "never use markdown") != NULL);
+    ASSERT(strstr(mock_llm_last_request_json(), "call display_dashboard instead of answering with text") != NULL);
 
     mock_display_set_running(false);
     ASSERT(mock_llm_push_result(ESP_OK, reply));
