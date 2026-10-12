@@ -67,3 +67,8 @@ CONFIG_FATFS_MAX_LFN=255
 # FatFs sizes its buffers by the largest sector it may meet. We have no wear-levelled
 # flash FAT, only SD cards (512-byte sectors); the 4096 default costs ~4 KB per open file.
 CONFIG_WL_SECTOR_SIZE_512=y
+# RAM: TLS buffers only while data moves; FAT windows of 512 B (no flash FAT partition)
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT=y
+CONFIG_FATFS_SECTOR_512=y
