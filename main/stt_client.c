@@ -87,6 +87,12 @@ esp_err_t stt_client_transcribe(const uint8_t *body, size_t len, char *text, siz
         return ESP_ERR_TIMEOUT;
     }
     esp_err_t err = post(body, len, reply, STT_REPLY_MAX, status);
+    if (err == ESP_ERR_HTTP_CONNECT) {
+        // Nothing reached the server, so one more try is safe; a brief network
+        // drop would otherwise lose the recording.
+        ESP_LOGW(TAG, "Connect failed, retrying once");
+        err = post(body, len, reply, STT_REPLY_MAX, status);
+    }
     http_gate_release();
     if (err == ESP_OK && *status != 200) {
         err = ESP_FAIL;
