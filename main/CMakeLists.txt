@@ -64,6 +64,7 @@ idf_component_register(
         "audio_capture.c"
         "stt_client.c"
         "voice.c"
+        "voice_buf.c"
         "display_status.c"
         "display_face.c"
         "display_remote.c"

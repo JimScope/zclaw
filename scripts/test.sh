@@ -87,6 +87,7 @@ run_host_tests() {
         test_voice_detect.c \
         test_stt_reply.c \
         test_agent_prompt.c \
+        test_voice_buf.c \
         test_runner.c \
         mock_esp.c \
         mock_memory.c \
@@ -144,6 +145,7 @@ run_host_tests() {
         ../../main/clap_detect.c \
         ../../main/endpoint.c \
         ../../main/stt_reply.c \
+        ../../main/voice_buf.c \
         $CJSON_LDFLAGS -lm 2>&1 || {
         echo "Note: Failed to compile tests. Install cJSON:"
         echo "  macOS:  brew install cjson"

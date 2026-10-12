@@ -25,7 +25,8 @@ bool stt_client_configured(void)
     return CONFIG_ZCLAW_STT_URL[0] != '\0' && CONFIG_ZCLAW_STT_TOKEN[0] != '\0';
 }
 
-static esp_err_t post(const uint8_t *body, size_t len, char *reply, size_t reply_len, int *status)
+static esp_err_t post(const stt_segment_t *segs, size_t nsegs, size_t len, char *reply, size_t reply_len,
+                      int *status)
 {
     esp_http_client_config_t cfg = {
         .url = CONFIG_ZCLAW_STT_URL,
@@ -41,14 +42,16 @@ static esp_err_t post(const uint8_t *body, size_t len, char *reply, size_t reply
     esp_http_client_set_header(client, "X-Audio-Format", "ima-adpcm; rate=16000");
     esp_http_client_set_header(client, "Content-Type", "application/octet-stream");
     esp_err_t err = esp_http_client_open(client, (int)len);
-    size_t sent = 0;
-    while (err == ESP_OK && sent < len) {
-        int n = esp_http_client_write(client, (const char *)body + sent, (int)(len - sent));
-        if (n <= 0) {
-            err = ESP_FAIL;
-            break;
+    for (size_t i = 0; err == ESP_OK && i < nsegs; i++) {
+        size_t sent = 0;
+        while (sent < segs[i].len) {
+            int n = esp_http_client_write(client, (const char *)segs[i].data + sent, (int)(segs[i].len - sent));
+            if (n <= 0) {
+                err = ESP_FAIL;
+                break;
+            }
+            sent += (size_t)n;
         }
-        sent += (size_t)n;
     }
     if (err == ESP_OK) {
         (void)esp_http_client_fetch_headers(client);
@@ -68,8 +71,13 @@ static esp_err_t post(const uint8_t *body, size_t len, char *reply, size_t reply
     return err;
 }
 
-esp_err_t stt_client_transcribe(const uint8_t *body, size_t len, char *text, size_t text_len, int *status)
+esp_err_t stt_client_transcribe(const stt_segment_t *segs, size_t nsegs, char *text, size_t text_len,
+                                int *status)
 {
+    size_t len = 0;
+    for (size_t i = 0; i < nsegs; i++) {
+        len += segs[i].len;
+    }
     *status = 0;
     if (text_len > 0) {
         text[0] = '\0';
@@ -86,12 +94,12 @@ esp_err_t stt_client_transcribe(const uint8_t *body, size_t len, char *text, siz
         free(reply);
         return ESP_ERR_TIMEOUT;
     }
-    esp_err_t err = post(body, len, reply, STT_REPLY_MAX, status);
+    esp_err_t err = post(segs, nsegs, len, reply, STT_REPLY_MAX, status);
     if (err == ESP_ERR_HTTP_CONNECT) {
         // Nothing reached the server, so one more try is safe; a brief network
         // drop would otherwise lose the recording.
         ESP_LOGW(TAG, "Connect failed, retrying once");
-        err = post(body, len, reply, STT_REPLY_MAX, status);
+        err = post(segs, nsegs, len, reply, STT_REPLY_MAX, status);
     }
     http_gate_release();
     if (err == ESP_OK && *status != 200) {
@@ -112,10 +120,11 @@ bool stt_client_configured(void)
     return false;
 }
 
-esp_err_t stt_client_transcribe(const uint8_t *body, size_t len, char *text, size_t text_len, int *status)
+esp_err_t stt_client_transcribe(const stt_segment_t *segs, size_t nsegs, char *text, size_t text_len,
+                                int *status)
 {
-    (void)body;
-    (void)len;
+    (void)segs;
+    (void)nsegs;
     if (text_len > 0) {
         text[0] = '\0';
     }

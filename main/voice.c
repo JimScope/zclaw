@@ -23,9 +23,11 @@
 #include "messages.h"
 #include "stt_client.h"
 #include "tools_handlers.h"
+#include "voice_buf.h"
 
 #define VOICE_FRAME_SAMPLES   AUDIO_CAPTURE_FRAME_SAMPLES
-#define VOICE_BUF_BYTES       (ADPCM_HEADER_BYTES + ENDPOINT_MAX_FRAMES * VOICE_FRAME_SAMPLES / 2)
+#define VOICE_FRAME_BYTES     (VOICE_FRAME_SAMPLES / 2)
+#define VOICE_REC_BYTES       (ADPCM_HEADER_BYTES + ENDPOINT_MAX_FRAMES * VOICE_FRAME_BYTES)
 #define VOICE_TASK_STACK      8192   // the TLS handshake of the upload runs here
 #define VOICE_TASK_PRIO       3
 #define VOICE_NOTICE_MS       3000
@@ -44,8 +46,8 @@ static QueueHandle_t s_agent_queue;
 static TaskHandle_t s_task;
 static volatile voice_state_t s_state = VOICE_IDLE;
 static volatile bool s_listen_request;
-static uint8_t *volatile s_buf;      // ADPCM stream, allocated and freed by the voice task
-static volatile size_t s_buf_len;
+static voice_buf_t s_rec;            // ADPCM stream, allocated and freed by the voice task
+static volatile bool s_rec_ready;    // set by the voice task once s_rec can take frames
 static int64_t s_listen_since_ms;
 
 // Audio-task state (D3: the audio task only updates state and notifies).
@@ -115,9 +117,11 @@ static void on_frame(const int16_t *pcm, size_t n, void *ctx)
         break;
     }
     case VOICE_LISTENING: {
-        uint8_t *buf = s_buf;
-        if (buf && s_buf_len + n / 2 <= VOICE_BUF_BYTES) {
-            s_buf_len += adpcm_encode(&s_adpcm, pcm, n, buf + s_buf_len);
+        if (s_rec_ready) {
+            uint8_t *dst = voice_buf_append(&s_rec, n / 2);
+            if (dst) {
+                adpcm_encode(&s_adpcm, pcm, n, dst);
+            }
         }
         endpoint_result_t r = endpoint_frame(&s_endpoint, st.rms);
         if (r != ENDPOINT_CONTINUE) {
@@ -139,10 +143,8 @@ static void show_error(const char *text)
 
 static void release_buffer(void)
 {
-    uint8_t *buf = s_buf;
-    s_buf = NULL;
-    s_buf_len = 0;
-    free(buf);
+    s_rec_ready = false;
+    voice_buf_free(&s_rec);
 }
 
 static void end_listening_ui(void)
@@ -163,16 +165,18 @@ static void send_recording(void)
     led_thinking_start();
     if (!stt_client_configured()) {
         err = ESP_ERR_INVALID_STATE;
-    } else if (!s_buf || s_buf_len <= ADPCM_HEADER_BYTES) {
+    } else if (!s_rec_ready || s_rec.total <= ADPCM_HEADER_BYTES) {
         err = ESP_ERR_INVALID_SIZE;
     } else {
-        // Hand the unused tail of the buffer back before the TLS handshake, the
-        // turn's heap low point. The audio task no longer touches s_buf (SENDING).
-        uint8_t *fit = realloc(s_buf, s_buf_len);
-        if (fit) {
-            s_buf = fit;
+        // Free the chunks the recording did not reach before the TLS handshake,
+        // the turn's heap low point. The audio task no longer writes (SENDING).
+        stt_segment_t segs[VOICE_BUF_MAX_CHUNKS];
+        voice_buf_trim(&s_rec);
+        for (size_t i = 0; i < s_rec.count; i++) {
+            segs[i].data = s_rec.chunk[i];
+            segs[i].len = s_rec.used[i];
         }
-        err = stt_client_transcribe(s_buf, s_buf_len, text, sizeof(text), &status);
+        err = stt_client_transcribe(segs, s_rec.count, text, sizeof(text), &status);
     }
     release_buffer();  // before the agent's LLM request needs the heap
 
@@ -244,14 +248,14 @@ static void voice_task(void *arg)
         xTaskNotifyWait(0, UINT32_MAX, &bits, pdMS_TO_TICKS(VOICE_PROBE_PERIOD_MS));
 
         if (bits & EV_START) {
-            uint8_t *buf = malloc(VOICE_BUF_BYTES);
-            if (buf) {
+            // 8 KB chunks instead of one 80 KB block: after a few turns the heap
+            // has the room but rarely in one piece.
+            if (voice_buf_alloc(&s_rec, VOICE_REC_BYTES, VOICE_FRAME_BYTES)) {
                 adpcm_state_t first;
                 adpcm_init(&first);
-                adpcm_header(&first, buf);
-                s_buf_len = ADPCM_HEADER_BYTES;
-                s_buf = buf;  // published last: the audio task starts encoding now
+                adpcm_header(&first, voice_buf_append(&s_rec, ADPCM_HEADER_BYTES));
                 s_listen_since_ms = now_ms();
+                s_rec_ready = true;  // published last: the audio task starts encoding now
                 display_notify_listening(true);
                 led_listening_set(true);
                 ESP_LOGI(TAG, "Listening");
@@ -270,7 +274,7 @@ static void voice_task(void *arg)
             }
             s_state = VOICE_IDLE;
         }
-        if (s_state == VOICE_LISTENING && s_buf && now_ms() - s_listen_since_ms > VOICE_LISTEN_LIMIT_MS) {
+        if (s_state == VOICE_LISTENING && s_rec_ready && now_ms() - s_listen_since_ms > VOICE_LISTEN_LIMIT_MS) {
             s_state = VOICE_IDLE;
             end_listening_ui();
             release_buffer();
