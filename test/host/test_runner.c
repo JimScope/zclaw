@@ -34,6 +34,7 @@ extern int test_dash_url_all(void);
 extern int test_jpeg_strip_all(void);
 extern int test_dash_state_all(void);
 extern int test_text_layout_all(void);
+extern int test_agent_commands_all(void);
 
 int main(int argc, char *argv[])
 {
@@ -71,6 +72,7 @@ int main(int argc, char *argv[])
     failures += test_jpeg_strip_all();
     failures += test_dash_state_all();
     failures += test_text_layout_all();
+    failures += test_agent_commands_all();
 
     printf("\n===================\n");
     if (failures == 0) {

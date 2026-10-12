@@ -29,4 +29,13 @@ bool display_request_dashboard(const char *name, uint32_t duration_ms);
 // display owns jpeg (it frees it); on false the caller still owns it.
 bool display_show_jpeg(uint8_t *jpeg, size_t len, uint32_t duration_ms);
 
+// Show `reply` as text under a grey header "<label> <prompt>" (prompt
+// clipped to 160 bytes, reply to 1024, both copied). The page lasts 70 ms
+// per character (8-45 s) and pages itself. False when the display is
+// disabled, not running, out of memory or its queue is full.
+bool display_show_answer(const char *label, const char *prompt, const char *reply);
+
+// True once display_start() succeeded.
+bool display_is_running(void);
+
 #endif // DISPLAY_API_H

@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "dash_state.h"
+#include "display_answer.h"
 #include "dash_url.h"
 #include "display_face.h"
 #include "display_gfx.h"
@@ -24,6 +25,7 @@
 #include "memory.h"
 #include "page_rotation.h"
 #include "sd_card.h"
+#include "text_layout.h"
 #include "tools_handlers.h"
 
 #define DISPLAY_TASK_STACK 5120
@@ -32,6 +34,8 @@
 #define DISPLAY_TICK_MS    30
 #define DISPLAY_FADE_MS    150
 #define DASH_URL_MAX       200
+#define ANSWER_PROMPT_MAX  160
+#define ANSWER_REPLY_MAX   CHANNEL_TX_BUF_SIZE
 
 typedef enum {
     DISPLAY_EV_THINKING,
@@ -41,13 +45,14 @@ typedef enum {
     DISPLAY_EV_SHOW_DASH,
     DISPLAY_EV_DASH_DONE,
     DISPLAY_EV_SHOW_JPEG,
+    DISPLAY_EV_SHOW_ANSWER,
 } display_event_type_t;
 
 typedef struct {
     display_event_type_t type;
     uint32_t value;  // flag, reply length, duration or request id
     uint32_t extra;  // dashboard index or JPEG length
-    void *ptr;       // DISPLAY_EV_DASH_DONE: JPEG buffer, owned by the receiver
+    void *ptr;       // DASH_DONE: JPEG buffer; SHOW_ANSWER: answer block (owned by the receiver)
 } display_event_t;
 
 static const char *const s_dash_names[] = {"clima", "cripto"};
@@ -62,6 +67,11 @@ static page_rotation_t s_pages;
 // Dashboard currently requested (PAGE_REMOTE).
 static dash_state_t s_dash;             // remote page request + the JPEG it owns
 static const char *s_dash_title = "Imagen";
+
+// Answer page (PAGE_ANSWER): when it appeared, the page shown, a new answer to draw.
+static int64_t s_answer_since = 0;
+static size_t s_answer_page = 0;
+static bool s_answer_fresh = false;
 
 static int64_t now_ms(void)
 {
@@ -167,6 +177,15 @@ static void apply_event(const display_event_t *ev, int64_t now)
         s_dash_title = "Imagen";
         page_rotation_show(&s_pages, PAGE_REMOTE, ev->value, now);
         break;
+    case DISPLAY_EV_SHOW_ANSWER: {
+        uint32_t ms = display_answer_load(ev->ptr, ev->extra);
+        if (page_rotation_show(&s_pages, PAGE_ANSWER, ms, now)) {
+            s_answer_fresh = true;
+        } else {
+            display_answer_clear();  // a tool's page from this turn stays on screen
+        }
+        break;
+    }
     case DISPLAY_EV_DASH_DONE:
         if (!dash_state_done(&s_dash, ev->value, ev->ptr, ev->extra)) {
             free(ev->ptr);  // stale download for an older request
@@ -202,6 +221,9 @@ static void display_task(void *arg)
         // Releases a JPEG (or makes an in-flight download stale) the moment the
         // remote page is not active, including requests cancelled before shown.
         dash_state_page(&s_dash, page == PAGE_REMOTE);
+        if (page != PAGE_ANSWER && display_answer_loaded()) {
+            display_answer_clear();  // expired, or cancelled by a new activity
+        }
         if (page == PAGE_REMOTE && s_dash.need_fetch) {
             start_dash_fetch();
         }
@@ -219,6 +241,11 @@ static void display_task(void *arg)
                 if (!draw_dash_result()) {
                     draw_message(s_dash_title, "cargando...");
                 }
+            } else if (page == PAGE_ANSWER) {
+                s_answer_since = now;
+                s_answer_page = 0;
+                s_answer_fresh = false;
+                display_answer_draw(0);
             } else {
                 display_face_invalidate();
                 if (!display_face_draw(&s_face, now)) {
@@ -232,6 +259,23 @@ static void display_task(void *arg)
             fade_out();
             draw_dash_result();
             fade_in();
+        } else if (page == PAGE_ANSWER) {
+            if (s_answer_fresh) {
+                s_answer_fresh = false;  // replaced while shown: start over
+                s_answer_since = now;
+                s_answer_page = 0;
+                fade_out();
+                display_answer_draw(0);
+                fade_in();
+            } else {
+                size_t next = display_answer_page_at((uint32_t)(now - s_answer_since));
+                if (next != s_answer_page) {
+                    s_answer_page = next;
+                    fade_out();
+                    display_answer_draw(next);
+                    fade_in();
+                }
+            }
         }
 
         if (page == PAGE_FACE && !display_face_draw(&s_face, now)) {
@@ -292,6 +336,37 @@ void display_notify_wifi(bool connected)
     post(DISPLAY_EV_WIFI, connected ? 1u : 0u, 0);
 }
 
+bool display_is_running(void)
+{
+    return s_queue != NULL;
+}
+
+bool display_show_answer(const char *label, const char *prompt, const char *reply)
+{
+    if (!s_queue || !label || !prompt || !reply) {
+        return false;
+    }
+    size_t label_len = strlen(label);
+    char *block = malloc(label_len + 1 + ANSWER_PROMPT_MAX + 1 + ANSWER_REPLY_MAX + 1);
+    if (!block) {
+        return false;
+    }
+    memcpy(block, label, label_len);
+    block[label_len] = ' ';
+    size_t header_len = label_len + 1 +
+        text_layout_clip_utf8(prompt, ANSWER_PROMPT_MAX, block + label_len + 1, ANSWER_PROMPT_MAX + 1);
+    (void)text_layout_clip_utf8(reply, ANSWER_REPLY_MAX, block + header_len + 1, ANSWER_REPLY_MAX + 1);
+
+    display_event_t ev = {
+        .type = DISPLAY_EV_SHOW_ANSWER, .value = 0, .extra = (uint32_t)header_len, .ptr = block,
+    };
+    if (xQueueSend(s_queue, &ev, 0) != pdTRUE) {
+        free(block);  // the reply still reached the serial console
+        return false;
+    }
+    return true;
+}
+
 bool display_request_status(uint32_t duration_ms)
 {
     if (!s_queue) {
@@ -343,5 +418,13 @@ bool display_request_dashboard(const char *name, uint32_t duration_ms)
     (void)duration_ms;
     return false;
 }
+bool display_show_answer(const char *label, const char *prompt, const char *reply)
+{
+    (void)label;
+    (void)prompt;
+    (void)reply;
+    return false;
+}
+bool display_is_running(void) { return false; }
 
 #endif

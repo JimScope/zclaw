@@ -1000,6 +1000,110 @@ TEST(command_turn_does_not_pause_telegram_polling)
     return 0;
 }
 
+TEST(reply_shows_answer_page_with_prompt)
+{
+    QueueHandle_t channel_q;
+    char text[CHANNEL_TX_BUF_SIZE];
+    const char *reply =
+        "{\"content\":[{\"type\":\"text\",\"text\":\"Son las 12:45 en Madrid.\"}],"
+        "\"stop_reason\":\"end_turn\"}";
+
+    reset_state();
+    mock_display_reset();
+    mock_display_set_running(true);
+    channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
+    ASSERT(channel_q != NULL);
+    agent_test_set_queues(channel_q, NULL);
+    ASSERT(mock_llm_push_result(ESP_OK, reply));
+
+    agent_test_process_message("que hora es en Madrid");
+
+    ASSERT(mock_display_answer_calls() == 1);
+    ASSERT_STR_EQ(mock_display_last_answer_label(), "T\xC3\xBA:");
+    ASSERT_STR_EQ(mock_display_last_answer_prompt(), "que hora es en Madrid");
+    ASSERT_STR_EQ(mock_display_last_answer_reply(), "Son las 12:45 en Madrid.");
+    ASSERT(mock_display_talking_calls() == 0);
+    ASSERT(recv_channel_text(channel_q, text, sizeof(text)) == 1);
+    ASSERT_STR_EQ(text, "Son las 12:45 en Madrid.");
+
+    vQueueDelete(channel_q);
+    mock_display_reset();
+    return 0;
+}
+
+TEST(cron_reply_shows_task_header)
+{
+    QueueHandle_t channel_q;
+    const char *reply =
+        "{\"content\":[{\"type\":\"text\",\"text\":\"Hoy hace sol.\"}],\"stop_reason\":\"end_turn\"}";
+
+    reset_state();
+    mock_display_reset();
+    mock_display_set_running(true);
+    channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
+    ASSERT(channel_q != NULL);
+    agent_test_set_queues(channel_q, NULL);
+    ASSERT(mock_llm_push_result(ESP_OK, reply));
+
+    agent_test_process_message("[CRON 3] dime el clima de hoy");
+
+    ASSERT(mock_display_answer_calls() == 1);
+    ASSERT_STR_EQ(mock_display_last_answer_label(), "Tarea:");
+    ASSERT_STR_EQ(mock_display_last_answer_prompt(), "dime el clima de hoy");
+    ASSERT_STR_EQ(mock_display_last_answer_reply(), "Hoy hace sol.");
+
+    vQueueDelete(channel_q);
+    mock_display_reset();
+    return 0;
+}
+
+TEST(command_reply_shows_answer_page)
+{
+    QueueHandle_t channel_q;
+
+    reset_state();
+    mock_display_reset();
+    mock_display_set_running(true);
+    channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
+    ASSERT(channel_q != NULL);
+    agent_test_set_queues(channel_q, NULL);
+
+    agent_test_process_message("/help");
+
+    ASSERT(mock_llm_request_count() == 0);
+    ASSERT(mock_display_answer_calls() == 1);
+    ASSERT_STR_EQ(mock_display_last_answer_prompt(), "/help");
+    ASSERT(strncmp(mock_display_last_answer_reply(), "zclaw online.", 13) == 0);
+
+    vQueueDelete(channel_q);
+    mock_display_reset();
+    return 0;
+}
+
+TEST(dashboard_commands_do_not_show_answer)
+{
+    QueueHandle_t channel_q;
+
+    reset_state();
+    mock_display_reset();
+    mock_display_set_running(true);
+    channel_q = xQueueCreate(8, sizeof(channel_output_msg_t));
+    ASSERT(channel_q != NULL);
+    agent_test_set_queues(channel_q, NULL);
+
+    agent_test_process_message("/panel");
+    agent_test_process_message("/clima");
+    agent_test_process_message("/cripto");
+
+    ASSERT(mock_display_last_status_ms() == 30000);
+    ASSERT_STR_EQ(mock_display_last_dashboard(), "cripto");
+    ASSERT(mock_display_answer_calls() == 0);
+
+    vQueueDelete(channel_q);
+    mock_display_reset();
+    return 0;
+}
+
 int test_agent_all(void)
 {
     int failures = 0;
@@ -1183,6 +1287,34 @@ int test_agent_all(void)
 
     printf("  command_turn_does_not_pause_telegram_polling... ");
     if (test_command_turn_does_not_pause_telegram_polling() == 0) {
+        printf("OK\n");
+    } else {
+        failures++;
+    }
+
+    printf("  reply_shows_answer_page_with_prompt... ");
+    if (test_reply_shows_answer_page_with_prompt() == 0) {
+        printf("OK\n");
+    } else {
+        failures++;
+    }
+
+    printf("  cron_reply_shows_task_header... ");
+    if (test_cron_reply_shows_task_header() == 0) {
+        printf("OK\n");
+    } else {
+        failures++;
+    }
+
+    printf("  command_reply_shows_answer_page... ");
+    if (test_command_reply_shows_answer_page() == 0) {
+        printf("OK\n");
+    } else {
+        failures++;
+    }
+
+    printf("  dashboard_commands_do_not_show_answer... ");
+    if (test_dashboard_commands_do_not_show_answer() == 0) {
         printf("OK\n");
     } else {
         failures++;

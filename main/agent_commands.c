@@ -267,3 +267,21 @@ bool agent_is_cron_trigger_message(const char *message)
 
     return strncmp(message, "[CRON ", 6) == 0;
 }
+
+const char *agent_cron_trigger_body(const char *message)
+{
+    const char *close;
+
+    if (!agent_is_cron_trigger_message(message)) {
+        return message;
+    }
+    close = strchr(message, ']');
+    if (!close) {
+        return message;
+    }
+    close++;
+    while (*close && is_whitespace_char(*close)) {
+        close++;
+    }
+    return close;
+}

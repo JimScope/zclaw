@@ -9,6 +9,9 @@
 bool agent_is_command(const char *message, const char *name);
 bool agent_is_slash_command(const char *message);
 bool agent_is_cron_trigger_message(const char *message);
+// Text of a "[CRON n] action" trigger without its prefix; any other message
+// (or a malformed trigger) is returned unchanged.
+const char *agent_cron_trigger_body(const char *message);
 const char *agent_command_payload(const char *message, const char *name);
 bool agent_parse_gpio_command_args(const char *message,
                                    const char **tool_name_out,

@@ -77,6 +77,7 @@ run_host_tests() {
         test_jpeg_strip.c \
         test_dash_state.c \
         test_text_layout.c \
+        test_agent_commands.c \
         test_runner.c \
         mock_esp.c \
         mock_memory.c \

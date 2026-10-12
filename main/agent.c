@@ -39,6 +39,10 @@ static QueueHandle_t s_telegram_output_queue;
 static int64_t s_last_start_response_us = 0;
 static int64_t s_last_non_command_response_us = 0;
 static char s_last_non_command_text[CHANNEL_RX_BUF_SIZE] = {0};
+// Screen header of the reply being produced: who asked and what. Set at the
+// start of process_message; points into the message being processed.
+static const char *s_reply_label = "";
+static const char *s_reply_prompt = "";
 static bool s_messages_paused = false;
 static char s_system_prompt_buf[2048];
 
@@ -181,7 +185,7 @@ static void queue_telegram_response(const char *text, int64_t chat_id)
 
 static void send_response(const char *text, int64_t chat_id)
 {
-    display_notify_talking(text ? strlen(text) : 0);
+    (void)display_show_answer(s_reply_label, s_reply_prompt, text ? text : "");
     queue_channel_response(text);
     queue_telegram_response(text, chat_id);
 }
@@ -413,6 +417,8 @@ static void process_message(const char *user_message, message_source_t source, i
     int history_turn_start = s_history_len;
     bool is_non_command_message = !agent_is_slash_command(user_message);
     bool is_cron_trigger = agent_is_cron_trigger_message(user_message);
+    s_reply_label = is_cron_trigger ? "Tarea:" : "T\xC3\xBA:";
+    s_reply_prompt = is_cron_trigger ? agent_cron_trigger_body(user_message) : user_message;
     bool telegram_polling_paused = false;
     request_metrics_t metrics = {
         .started_us = esp_timer_get_time(),
@@ -844,6 +850,7 @@ static void agent_task(void *arg)
             // Single stop point: covers every exit path of process_message.
             led_thinking_stop();
             display_notify_thinking(false);
+            s_reply_prompt = "";
         }
     }
 }
