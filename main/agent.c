@@ -13,6 +13,7 @@
 #include "nvs_keys.h"
 #include "telegram.h"
 #include "display.h"
+#include "task_log.h"
 
 #define PANEL_DISPLAY_MS 30000
 #include "cJSON.h"
@@ -43,6 +44,7 @@ static char s_last_non_command_text[CHANNEL_RX_BUF_SIZE] = {0};
 // start of process_message; points into the message being processed.
 static const char *s_reply_label = "";
 static const char *s_reply_prompt = "";
+static bool s_reply_is_task = false;  // cron turn: replies go to the task log
 static bool s_messages_paused = false;
 static char s_system_prompt_buf[2048];
 
@@ -186,6 +188,9 @@ static void queue_telegram_response(const char *text, int64_t chat_id)
 static void send_response(const char *text, int64_t chat_id)
 {
     (void)display_show_answer(s_reply_label, s_reply_prompt, text ? text : "");
+    if (s_reply_is_task) {
+        task_log_append(s_reply_prompt, text ? text : "");
+    }
     queue_channel_response(text);
     queue_telegram_response(text, chat_id);
 }
@@ -419,6 +424,7 @@ static void process_message(const char *user_message, message_source_t source, i
     bool is_cron_trigger = agent_is_cron_trigger_message(user_message);
     s_reply_label = is_cron_trigger ? "Tarea:" : "T\xC3\xBA:";
     s_reply_prompt = is_cron_trigger ? agent_cron_trigger_body(user_message) : user_message;
+    s_reply_is_task = is_cron_trigger;
     bool telegram_polling_paused = false;
     request_metrics_t metrics = {
         .started_us = esp_timer_get_time(),
@@ -851,6 +857,7 @@ static void agent_task(void *arg)
             led_thinking_stop();
             display_notify_thinking(false);
             s_reply_prompt = "";
+            s_reply_is_task = false;
         }
     }
 }

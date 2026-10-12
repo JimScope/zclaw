@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "cron.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
@@ -16,6 +17,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "ota.h"
+#include "task_log.h"
 #include "web_ota_policy.h"
 
 #define WEB_OTA_CHUNK      4096
@@ -23,6 +25,7 @@
 #define WEB_OTA_DRAIN_BUF  512
 #define WEB_OTA_BAD_PIN_MS 1000
 #define WEB_OTA_REBOOT_US  1000000
+#define WEB_TASKS_BUF      8192
 
 static const char *TAG = "web_ota";
 static httpd_handle_t s_server = NULL;
@@ -33,13 +36,32 @@ static const char PAGE_HEAD[] =
     "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
     "<title>Fidel OTA</title><style>body{font-family:sans-serif;max-width:26em;"
     "margin:2em auto;padding:0 1em}input,button{display:block;width:100%;"
-    "font-size:1em;margin:.5em 0;padding:.4em;box-sizing:border-box}</style>"
+    "font-size:1em;margin:.5em 0;padding:.4em;box-sizing:border-box}"
+    "pre{white-space:pre-wrap;font-family:inherit;margin:0 0 .8em}.h{color:#777;margin:.8em 0 0}</style>"
     "<h1>Fidel</h1><p>Versi\xC3\xB3n <b>";
 static const char PAGE_MID[] = "</b> &middot; partici\xC3\xB3n <b>";
 static const char PAGE_TAIL[] =
     "<input id=p type=password placeholder=PIN autocomplete=off>"
+    "<h2>Tareas</h2><button id=v>Ver tareas y avisos</button><div id=T></div>"
+    "<h2>Firmware</h2>"
     "<input id=f type=file accept=.bin><button id=b>Actualizar</button><p id=r></p>"
-    "<script>b.onclick=async()=>{const x=f.files[0];"
+    "<script>"
+    "function el(t,x,c){const e=document.createElement(t);e.textContent=x;if(c)e.className=c;return e}"
+    "function when(s){const t=+s;return t<1.6e9?'sin hora':new Date(t*1e3).toLocaleString('es',"
+    "{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}"
+    "function sched(j){return j.type=='daily'?'diaria '+j.time:j.type=='periodic'?"
+    "'cada '+j.interval_minutes+' min':j.type=='once'?'una vez':'condici\xC3\xB3n'}"
+    "function un(s){return(s||'').replace(/\\\\(n|t|\\\\)/g,(m,c)=>c=='n'?'\\n':c=='t'?'\\t':'\\\\')}"
+    "v.onclick=async()=>{T.textContent='Cargando...';const h={headers:{'X-OTA-PIN':p.value}};"
+    "try{const a=await fetch('/tasks',h);if(!a.ok){T.textContent=await a.text();return}"
+    "const tasks=await a.json();const l=await(await fetch('/log',h)).text();T.textContent='';"
+    "T.append(el('h3','Programadas'));if(!tasks.length)T.append(el('p','Ninguna'));"
+    "for(const j of tasks)T.append(el('p','#'+j.id+'  '+sched(j)+(j.enabled?'':' (pausada)')+'  '+j.action));"
+    "T.append(el('h3','\xC3\x9Altimos avisos'));const ls=l.split('\\n').filter(x=>x);"
+    "if(!ls.length)T.append(el('p','Sin avisos (\xC2\xBFhay SD?)'));"
+    "for(const x of ls){const q=x.split('\\t');T.append(el('p',when(q[0])+'  Tarea: '+un(q[1]),'h'));"
+    "T.append(el('pre',un(q[2])))}}catch(e){T.textContent='Error de red: '+e}};"
+    "b.onclick=async()=>{const x=f.files[0];"
     "if(!x){r.textContent='Elige el archivo .bin';return}"
     "if(x.size>MAX){r.textContent='El archivo no cabe en la partici\xC3\xB3n';return}"
     "b.disabled=true;r.textContent='Subiendo '+Math.round(x.size/1024)+' KB...';"
@@ -114,6 +136,54 @@ static void schedule_reboot(void)
         esp_timer_start_once(timer, WEB_OTA_REBOOT_US) != ESP_OK) {
         esp_restart();
     }
+}
+
+// True with the right PIN; otherwise waits, replies 401 and returns false.
+static bool check_pin(httpd_req_t *req)
+{
+    char pin[WEB_OTA_PIN_MAX + 2];
+
+    if (httpd_req_get_hdr_value_str(req, "X-OTA-PIN", pin, sizeof(pin)) == ESP_OK &&
+        web_ota_pin_matches(pin, CONFIG_ZCLAW_WEB_OTA_PIN)) {
+        return true;
+    }
+    ESP_LOGW(TAG, "Wrong PIN");
+    vTaskDelay(pdMS_TO_TICKS(WEB_OTA_BAD_PIN_MS));
+    reply(req, "401 Unauthorized", "PIN incorrecto");
+    return false;
+}
+
+static esp_err_t tasks_get(httpd_req_t *req)
+{
+    if (!check_pin(req)) {
+        return ESP_OK;
+    }
+    char *buf = malloc(WEB_TASKS_BUF);
+    if (!buf) {
+        return reply(req, "500 Internal Server Error", "Error: sin memoria");
+    }
+    cron_list(buf, WEB_TASKS_BUF);
+    httpd_resp_set_type(req, "application/json");
+    esp_err_t err = httpd_resp_sendstr(req, buf);
+    free(buf);
+    return err;
+}
+
+static bool send_log_line(const char *line, void *ctx)
+{
+    httpd_req_t *req = ctx;
+    return httpd_resp_sendstr_chunk(req, line) == ESP_OK &&
+           httpd_resp_sendstr_chunk(req, "\n") == ESP_OK;
+}
+
+static esp_err_t log_get(httpd_req_t *req)
+{
+    if (!check_pin(req)) {
+        return ESP_OK;
+    }
+    httpd_resp_set_type(req, "text/plain; charset=utf-8");
+    (void)task_log_read_recent(TASK_LOG_RECENT, send_log_line, req);
+    return httpd_resp_sendstr_chunk(req, NULL);
 }
 
 static esp_err_t ota_post(httpd_req_t *req)
@@ -199,6 +269,8 @@ esp_err_t web_ota_start(void)
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     const httpd_uri_t page = { .uri = "/", .method = HTTP_GET, .handler = page_get };
     const httpd_uri_t upload = { .uri = "/ota", .method = HTTP_POST, .handler = ota_post };
+    const httpd_uri_t tasks = { .uri = "/tasks", .method = HTTP_GET, .handler = tasks_get };
+    const httpd_uri_t log_uri = { .uri = "/log", .method = HTTP_GET, .handler = log_get };
     size_t pin_len = strlen(CONFIG_ZCLAW_WEB_OTA_PIN);
 
     if (s_server) {
@@ -211,7 +283,7 @@ esp_err_t web_ota_start(void)
     }
     config.max_open_sockets = 2;
     config.stack_size = WEB_OTA_STACK;
-    config.max_uri_handlers = 2;
+    config.max_uri_handlers = 4;
     config.lru_purge_enable = true;
     config.recv_wait_timeout = 10;
     config.send_wait_timeout = 10;
@@ -222,6 +294,8 @@ esp_err_t web_ota_start(void)
     }
     httpd_register_uri_handler(s_server, &page);
     httpd_register_uri_handler(s_server, &upload);
+    httpd_register_uri_handler(s_server, &tasks);
+    httpd_register_uri_handler(s_server, &log_uri);
     ESP_LOGI(TAG, "Firmware upload page on port %d", config.server_port);
     return ESP_OK;
 }

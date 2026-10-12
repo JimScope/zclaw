@@ -1132,6 +1132,52 @@ TEST(screen_hint_in_prompt_only_with_display)
     return 0;
 }
 
+#include "mock_task_log.h"
+
+TEST(cron_reply_goes_to_task_log)
+{
+    QueueHandle_t channel_q;
+    const char *reply =
+        "{\"content\":[{\"type\":\"text\",\"text\":\"Hora de la medicina.\"}],\"stop_reason\":\"end_turn\"}";
+
+    reset_state();
+    mock_task_log_reset();
+    channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
+    ASSERT(channel_q != NULL);
+    agent_test_set_queues(channel_q, NULL);
+    ASSERT(mock_llm_push_result(ESP_OK, reply));
+
+    agent_test_process_message("[CRON 5] recuerdame la medicina");
+
+    ASSERT(mock_task_log_calls() == 1);
+    ASSERT_STR_EQ(mock_task_log_last_action(), "recuerdame la medicina");
+    ASSERT_STR_EQ(mock_task_log_last_reply(), "Hora de la medicina.");
+
+    vQueueDelete(channel_q);
+    return 0;
+}
+
+TEST(serial_reply_is_not_logged)
+{
+    QueueHandle_t channel_q;
+    const char *reply =
+        "{\"content\":[{\"type\":\"text\",\"text\":\"Hola.\"}],\"stop_reason\":\"end_turn\"}";
+
+    reset_state();
+    mock_task_log_reset();
+    channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
+    ASSERT(channel_q != NULL);
+    agent_test_set_queues(channel_q, NULL);
+    ASSERT(mock_llm_push_result(ESP_OK, reply));
+
+    agent_test_process_message("hola");
+
+    ASSERT(mock_task_log_calls() == 0);
+
+    vQueueDelete(channel_q);
+    return 0;
+}
+
 int test_agent_all(void)
 {
     int failures = 0;
@@ -1350,6 +1396,20 @@ int test_agent_all(void)
 
     printf("  screen_hint_in_prompt_only_with_display... ");
     if (test_screen_hint_in_prompt_only_with_display() == 0) {
+        printf("OK\n");
+    } else {
+        failures++;
+    }
+
+    printf("  cron_reply_goes_to_task_log... ");
+    if (test_cron_reply_goes_to_task_log() == 0) {
+        printf("OK\n");
+    } else {
+        failures++;
+    }
+
+    printf("  serial_reply_is_not_logged... ");
+    if (test_serial_reply_is_not_logged() == 0) {
         printf("OK\n");
     } else {
         failures++;
