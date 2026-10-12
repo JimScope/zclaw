@@ -13,6 +13,7 @@ import concurrent.futures
 import hmac
 import json
 import os
+import re
 import threading
 import time
 import wave
@@ -32,6 +33,15 @@ DEADLINE_S = 12.0
 LEAD_SILENCE = bytes(SAMPLE_RATE // 4 * 2)  # 250 ms of PCM16
 
 Recognizer = Callable[[bytes], str]    # PCM16LE mono 16 kHz -> transcript
+
+# Riva's Spanish punctuation glues the opening mark after the first word of a
+# question or exclamation ("Qué¿ hora es?"); it belongs in front of that word.
+_GLUED_OPENING = re.compile(r"(\w+)([¿¡])")
+
+
+def tidy_text(text: str) -> str:
+    """Collapse whitespace and put misplaced opening ¿/¡ back before their word."""
+    return _GLUED_OPENING.sub(r"\2\1", " ".join(str(text).split()))
 
 
 def write_wav(path: str, pcm: bytes) -> None:
@@ -75,7 +85,7 @@ class Stt:
             except Exception as exc:  # noqa: BLE001 (any ASR failure is a 502)
                 return 502, {"error": f"asr: {type(exc).__name__}"}
             ms = int((time.monotonic() - start) * 1000)
-            return 200, {"text": " ".join(str(text).split()), "ms": ms}
+            return 200, {"text": tidy_text(text), "ms": ms}
         finally:
             self._busy.release()
 

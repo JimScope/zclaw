@@ -71,6 +71,21 @@ class SttServerTest(unittest.TestCase):
         self.assertEqual(len(asr.calls[0]), (4000 + 2000) * 2)
         self.assertEqual(asr.calls[0][:8000], bytes(8000))
 
+    def test_moves_opening_marks_riva_glues_after_the_word(self):
+        cases = {
+            "Cuándo¿ terminará su mandato?": "¿Cuándo terminará su mandato?",
+            "Qué¿ hora es en La Habana?": "¿Qué hora es en La Habana?",
+            "Hola, Fidel. Qué¿ hora es?": "Hola, Fidel. ¿Qué hora es?",
+            "Qué¡ calor hace!": "¡Qué calor hace!",
+            "¿Qué hora es?": "¿Qué hora es?",
+            "hola fidel": "hola fidel",
+        }
+        for raw, want in cases.items():
+            self.assertEqual(server.tidy_text(raw), want)
+        self.start(FakeAsr(text="Qué¿ hora es?"))
+        status, body = self.post()
+        self.assertEqual((status, body["text"]), (200, "¿Qué hora es?"))
+
     def test_wrong_token(self):
         self.start(FakeAsr())
         status, _ = self.post(headers={**HEADERS, "X-Stt-Token": "nope"})
