@@ -32,7 +32,7 @@
 // -----------------------------------------------------------------------------
 // FreeRTOS Tasks
 // -----------------------------------------------------------------------------
-#define AGENT_TASK_STACK_SIZE   8192
+#define AGENT_TASK_STACK_SIZE   10240   // 8 KB left 1 KB free after read_web writes to the SD inside the HTTP callback
 #define CHANNEL_TASK_STACK_SIZE 4096
 #define CRON_TASK_STACK_SIZE    4096
 #define BOOT_OK_TASK_STACK_SIZE 4096
