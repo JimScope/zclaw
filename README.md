@@ -17,16 +17,13 @@ It includes `zclaw` logic plus ESP-IDF/FreeRTOS runtime, Wi-Fi/networking, TLS/c
 Fun to use, fun to hack on.
 <br clear="right" />
 
-## Full Documentation
+## Fidel fork
 
-Use the docs site for complete guides and reference.
+This branch runs one board: an ESP32-C6 with an ST7789 display, a microSD card and a MAX4466
+microphone. It talks to an OpenAI-compatible LLM through a proxy, listens by voice (double clap)
+and answers on the screen. Chat over USB serial; update over the web page with a PIN.
 
-- [Full documentation](https://zclaw.dev)
-- [Local Admin Console](https://zclaw.dev/local-admin.html)
-- [Use cases: useful + fun](https://zclaw.dev/use-cases.html)
-- [Changelog (web)](https://zclaw.dev/changelog.html)
-- [Complete README (verbatim)](https://zclaw.dev/reference/README_COMPLETE.md)
-
+Current design documents live in `docs/superpowers/specs/`.
 
 ## Quick Start
 
@@ -51,14 +48,14 @@ Non-interactive install:
 <details>
 <summary>Setup notes</summary>
 
-- `bootstrap.sh` clones/updates the repo and then runs `./install.sh`. You can inspect/verify the bootstrap flow first (including `ZCLAW_BOOTSTRAP_SHA256` integrity checks); see the [Getting Started docs](https://zclaw.dev/getting-started.html).
+- `bootstrap.sh` clones/updates the repo and then runs `./install.sh`. You can inspect/verify the bootstrap flow first (including `ZCLAW_BOOTSTRAP_SHA256` integrity checks).
 - Linux dependency installs auto-detect `apt-get`, `pacman`, `dnf`, or `zypper` during `install.sh` runs.
 - In non-interactive mode, unanswered install prompts default to `no` unless you pass `-y` (or saved preferences/explicit flags apply).
 - For encrypted credentials in flash, use secure mode (`--flash-mode secure` in install flow, or `./scripts/flash-secure.sh` directly).
 - After flashing, provision WiFi + LLM credentials with `./scripts/provision.sh`.
-- You can re-run either `./scripts/provision.sh` or `./scripts/provision-dev.sh` at any time (no reflash required) to update runtime credentials: WiFi SSID/password, LLM backend/model/API key (or Ollama API URL), and Telegram token/chat ID allowlist.
+- You can re-run either `./scripts/provision.sh` or `./scripts/provision-dev.sh` at any time (no reflash required) to update runtime credentials: WiFi SSID/password, LLM model/API key and API URL.
 - Default LLM rate limits are `100/hour` and `1000/day`; change compile-time limits in `main/config.h` (`RATELIMIT_*`).
-- Quick validation path: run `./scripts/web-relay.sh` and send a test message to confirm the device can answer.
+- Quick validation path: open the serial monitor (`./scripts/monitor.sh`) and send a test message to confirm the device can answer.
 - If serial port is busy, run `./scripts/release-port.sh` and retry.
 - For repeat local reprovisioning without retyping secrets, use `./scripts/provision-dev.sh` with a local profile file (`provision-dev.sh` wraps `provision.sh --yes`).
 
@@ -66,24 +63,19 @@ Non-interactive install:
 
 ## Highlights
 
-- Chat via Telegram or hosted web relay
+- Chat over USB serial; web OTA page with a PIN
 - Timezone-aware schedules (`daily`, `periodic`, and one-shot `once`)
 - Built-in + user-defined tools
 - For brand-new built-in capabilities, add a firmware tool (C handler + registry entry) via the Build Your Own Tool docs.
 - Runtime diagnostics via `get_diagnostics` (quick/runtime/memory/rates/time/all scopes)
-- GPIO, DHT, and I2C control with guardrails (including `gpio_read_all`, `i2c_scan`, `i2c_read`/`i2c_write`, and `dht_read`)
+- GPIO control with guardrails (including `gpio_read_all`)
 - USB local admin console for recovery, safe mode, and pre-network bring-up
 - Persistent memory across reboots
-- Persona options: `neutral`, `friendly`, `technical`, `witty`
-- Provider support for Anthropic, OpenAI, OpenRouter, and Ollama (custom endpoint)
+- OpenAI-compatible LLM endpoint (custom API URL)
 
 ## Hardware
 
-Tested targets: **ESP32**, **ESP32-C3**, **ESP32-S3**, and **ESP32-C6**.
-Classic **ESP32-WROOM/ESP32 DevKit** boards are supported.
-Test reports for other ESP32 variants are very welcome!
-
-Recommended starter board: [Seeed XIAO ESP32-C3](https://www.seeedstudio.com/Seeed-XIAO-ESP32C3-p-5431.html)
+Target: **ESP32-C6** with an ST7789 display, a microSD card and a MAX4466 microphone (see the Fidel fork section).
 
 ## Local Dev & Hacking
 
@@ -104,12 +96,7 @@ Profile setup once, then re-use:
 # edit ~/.config/zclaw/dev.env
 ./scripts/provision-dev.sh --show-config
 ./scripts/provision-dev.sh
-
-# if Telegram keeps replaying stale updates:
-./scripts/telegram-clear-backlog.sh --show-config
 ```
-
-More details in the [Local Dev & Hacking guide](https://zclaw.dev/local-dev.html).
 
 ### Other Useful Scripts
 
@@ -119,13 +106,9 @@ More details in the [Local Dev & Hacking guide](https://zclaw.dev/local-dev.html
 - `./scripts/flash-secure.sh` - Flash with encryption
 - `./scripts/provision.sh` - Provision credentials to NVS
 - `./scripts/provision-dev.sh` - Local profile wrapper for repeat provisioning
-- `./scripts/telegram-clear-backlog.sh` - Clear queued Telegram updates
 - `./scripts/erase.sh` - Erase NVS only (`--nvs`) or full flash (`--all`) with guardrails
 - `./scripts/monitor.sh` - Serial monitor
-- `./scripts/emulate.sh` - Run QEMU profile
-- `./scripts/web-relay.sh` - Hosted relay + mobile chat UI
-- `./scripts/benchmark.sh` - Benchmark relay/serial latency
-- `./scripts/test.sh` - Run host/device test flows
+- `./scripts/test.sh` - Run host tests
 - `./scripts/test-api.sh` - Run live provider API checks (manual/local)
 
 </details>
@@ -153,8 +136,6 @@ Available local-only commands:
 - `/bootcount`
 - `/factory-reset confirm` (destructive; wipes NVS and reboots)
 
-Full reference: [Local Admin Console](https://zclaw.dev/local-admin.html)
-
 ## Size Breakdown
 
 Current default `esp32` breakdown (grouped image bytes from `idf.py -B build size-components`):
@@ -168,21 +149,6 @@ Current default `esp32` breakdown (grouped image bytes from `idf.py -B build siz
 | other ESP-IDF/runtime/drivers/libc | `201786` | ~197.1 KiB | ~23.7% |
 
 Total image size from this build is `853034` bytes; padded `zclaw.bin` is `853184` bytes (~833.2 KiB), leaving `56128` bytes (~54.8 KiB) under the 888 KiB cap.
-
-## Latency Benchmarking
-
-Relay path benchmark (includes web relay processing + device round trip):
-
-```bash
-./scripts/benchmark.sh --mode relay --count 20 --message "ping"
-```
-
-Direct serial benchmark (host round trip + first response time). If firmware logs
-`METRIC request ...` lines, the report also includes device-side timing:
-
-```bash
-./scripts/benchmark.sh --mode serial --serial-port /dev/cu.usbmodem1101 --count 20 --message "ping"
-```
 
 ## License
 
