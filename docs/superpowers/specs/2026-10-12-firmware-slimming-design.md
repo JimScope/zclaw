@@ -65,7 +65,7 @@ Today's large static buffers (nm on the C6 build) and the plan for each:
 | Telegram out queue (main.c) and `s_send_msg` | 16.4 KB of heap and 4 KB static | removed with A1 | ~20 KB |
 | `html` (tools_net.c, web_search) | 6,144 B | B3: heap during the call only | 6 KB |
 | `s_web_cache` (tools_net.c, read_web) | 4,096 B | B4: page kept on the SD card | 4 KB |
-| `s_pending_fires` (cron.c) | 4,112 B | B5: store entry ids, not copies | ~4 KB |
+| `s_pending_fires` (cron.c) | 4,112 B | B5: heap copies only when entries fire | ~4 KB |
 | `s_system_prompt_buf` (agent.c) | 2,816 B | B3: heap around the request build | 2.8 KB |
 | `status_buf` (agent.c) | 1,024 B | shrink to 256 B | 0.8 KB |
 
@@ -109,7 +109,7 @@ SD access goes through `sd_card_begin/end`, like the task log.
 
 ### B5. Cron pending fires
 
-`check_entries` copies each due entry (276 B) into a static array so it can fire them after releasing the mutex. It will record only the entry index and the action's generation counter. Then it re-reads the action under the mutex at fire time, and skips the entry if it was deleted or changed meanwhile.
+`check_entries` copies each due entry (276 B) so it can fire them after releasing the mutex. It first collects the indices of the due entries, and only then allocates the copies on the heap, sized to the number of entries that fire. When nothing is due, nothing is allocated. If the allocation fails, the fire is deferred to the next check: the entries are untouched, so they are still due.
 
 ### B6. Configuration: TLS and FAT buffers
 
@@ -123,7 +123,7 @@ If a setting breaks TLS with the proxy or the SD card on the board, it is revert
 ## 5. Order of work
 
 1. **A1–A8, the removals.** One commit per feature, each with a clean build and green host tests. Removals first, so the RAM work touches less code.
-2. **B1–B5, the RAM changes.** Test-first for the pure modules: history ring, growable buffer, cron pending ids.
+2. **B1–B5, the RAM changes.** Test-first for the pure modules: history ring, growable buffer.
 3. **B6, the configuration.**
 4. **Board verification.** `/diag` at idle, then the full feature checklist of §1, with the heap minimum written down after each step. Done with the user watching the screen.
 
@@ -132,7 +132,7 @@ If a setting breaks TLS with the proxy or the SD card on the board, it is revert
 - **Host tests.** `scripts/test.sh host` stays green after every commit. New tests:
   - `history` ring: wrap, eviction, rollback by sequence and iterator, the long reply;
   - growable response buffer: growth, the cap and freeing;
-  - cron pending fires: an entry deleted between selection and fire is skipped.
+- **Cron.** Checked on the board (cron.c has no host tests).
 - **Build.** `idf.py build` for esp32c6 after every commit, with no warnings in the touched files.
 - **STT server.** `python3 -m unittest` in `server/stt` (untouched by this work).
 - **Board checklist.** The §1 success list, ending with the RAM numbers.
