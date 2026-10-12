@@ -54,7 +54,7 @@ bool agent_is_busy(void)
     return s_busy;
 }
 static bool s_messages_paused = false;
-static char s_system_prompt_buf[2048];
+static char s_system_prompt_buf[AGENT_SYSTEM_PROMPT_BUF_SIZE];
 
 static agent_persona_t s_persona = AGENT_PERSONA_NEUTRAL;
 

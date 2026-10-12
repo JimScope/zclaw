@@ -86,6 +86,7 @@ run_host_tests() {
         test_voice_audio.c \
         test_voice_detect.c \
         test_stt_reply.c \
+        test_agent_prompt.c \
         test_runner.c \
         mock_esp.c \
         mock_memory.c \
