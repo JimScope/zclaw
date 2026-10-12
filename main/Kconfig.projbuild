@@ -92,12 +92,12 @@ menu "zclaw Configuration"
 
         config ZCLAW_BOARD_RESERVED_GPIOS
             string "GPIOs reserved by the board (comma-separated)"
-            default "3" if IDF_TARGET_ESP32C6
+            default "3,4" if IDF_TARGET_ESP32C6
             default ""
             help
-                Pins the board itself uses. On some ESP32-C6 boards GPIO3
-                powers the RF switch: driving it high disconnects the antenna
-                and WiFi sees no networks. GPIO tools refuse these pins and the
+                Pins the board itself uses. On some ESP32-C6 boards GPIO3 and
+                GPIO4 drive the RF switch / antenna path: driving either one
+                (even with an analog signal) leaves WiFi with no networks. GPIO tools refuse these pins and the
                 display/SD bus refuses to start on them.
     endmenu
 
@@ -177,8 +177,8 @@ menu "zclaw Configuration"
             depends on ZCLAW_DISPLAY_ENABLE
 
         config ZCLAW_DISPLAY_RST_GPIO
-            int "Display reset GPIO"
-            range 0 48
+            int "Display reset GPIO (-1 = RES wired to 3V3, software reset)"
+            range -1 48
             default 0
             depends on ZCLAW_DISPLAY_ENABLE
 
