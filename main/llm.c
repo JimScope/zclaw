@@ -6,7 +6,7 @@
 #include "esp_log.h"
 #ifndef TEST_BUILD
 #include "http_gate.h"
-#include "text_buffer.h"
+#include "grow_buf.h"
 #include "cJSON.h"
 #include "esp_http_client.h"
 #include "esp_tls.h"
@@ -31,10 +31,7 @@ static char s_api_url_override[192] = {0};
 #ifndef TEST_BUILD
 // Context for HTTP response accumulation (thread-safe via user_data)
 typedef struct {
-    char *buf;
-    size_t len;
-    size_t max;
-    bool truncated;
+    grow_buf_t buf;
     bool saw_connected;
     bool saw_headers_sent;
     bool saw_header;
@@ -356,7 +353,7 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
             }
             break;
         case HTTP_EVENT_ON_DATA:
-            if (ctx && ctx->buf) {
+            if (ctx && ctx->buf.data) {
                 ctx->saw_data = true;
                 ctx->data_event_count++;
                 if (evt->data_len > 0) {
@@ -365,11 +362,10 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
                 if (ctx->first_data_us == 0) {
                     ctx->first_data_us = now_us;
                 }
-                bool ok = text_buffer_append(ctx->buf, &ctx->len, ctx->max,
-                                             (const char *)evt->data, evt->data_len);
-                if (!ok && !ctx->truncated) {
-                    ctx->truncated = true;
-                    ESP_LOGW(TAG, "LLM response truncated at %d bytes", (int)(ctx->max - 1));
+                bool was_truncated = ctx->buf.truncated;
+                bool ok = grow_buf_append(&ctx->buf, (const char *)evt->data, evt->data_len);
+                if (!ok && !was_truncated) {
+                    ESP_LOGW(TAG, "LLM response truncated at %d bytes", (int)(ctx->buf.max - 1));
                 }
             }
             break;
@@ -509,20 +505,18 @@ static char *llm_swap_model_in_request(const char *request_json, const char *fal
 }
 #endif
 
-esp_err_t llm_request(const char *request_json, char *response_buf, size_t response_buf_size)
+esp_err_t llm_request(const char *request_json, char **response_out)
 {
-    if (!request_json || !response_buf || response_buf_size == 0) {
+    if (!request_json || !response_out) {
         ESP_LOGE(TAG, "Invalid llm_request arguments");
         return ESP_ERR_INVALID_ARG;
     }
 
-    response_buf[0] = '\0';
+    *response_out = NULL;
 
 #ifdef TEST_BUILD
-    const char *canned = test_canned_reply(request_json);
-    strncpy(response_buf, canned, response_buf_size - 1);
-    response_buf[response_buf_size - 1] = '\0';
-    return ESP_OK;
+    *response_out = strdup(test_canned_reply(request_json));
+    return *response_out ? ESP_OK : ESP_ERR_NO_MEM;
 #else
     int64_t started_us = esp_timer_get_time();
     net_diag_snapshot_t snapshot_before = {0};
@@ -543,12 +537,15 @@ esp_err_t llm_request(const char *request_json, char *response_buf, size_t respo
     }
 
     // Thread-safe response context
-    http_response_ctx_t ctx = {
-        .buf = response_buf,
-        .len = 0,
-        .max = response_buf_size,
-        .truncated = false
-    };
+    http_response_ctx_t ctx = {0};
+    if (!grow_buf_init(&ctx.buf, LLM_RESPONSE_INITIAL, LLM_RESPONSE_MAX)) {
+        ESP_LOGE(TAG, "Failed to allocate response buffer");
+        capture_net_diag_snapshot(&snapshot_after);
+        log_http_diag("llm_request", NULL, ESP_ERR_NO_MEM, -1, 0, false,
+                      started_us, NULL, &snapshot_before, &snapshot_after);
+        http_gate_release();
+        return ESP_ERR_NO_MEM;
+    }
 
     esp_http_client_config_t config = {
         .url = llm_get_api_url(),
@@ -564,6 +561,7 @@ esp_err_t llm_request(const char *request_json, char *response_buf, size_t respo
         capture_net_diag_snapshot(&snapshot_after);
         log_http_diag("llm_request", NULL, ESP_FAIL, -1, 0, false,
                       started_us, NULL, &snapshot_before, &snapshot_after);
+        grow_buf_free(&ctx.buf);
         http_gate_release();
         return ESP_FAIL;
     }
@@ -578,6 +576,7 @@ esp_err_t llm_request(const char *request_json, char *response_buf, size_t respo
         if (!llm_build_bearer_auth_header(s_api_key, auth_header, sizeof(auth_header))) {
             ESP_LOGE(TAG, "API key length exceeds supported authorization header capacity");
             esp_http_client_cleanup(client);
+            grow_buf_free(&ctx.buf);
             http_gate_release();
             return ESP_ERR_INVALID_SIZE;
         }
@@ -593,13 +592,13 @@ esp_err_t llm_request(const char *request_json, char *response_buf, size_t respo
 
     if (err == ESP_OK) {
         status = esp_http_client_get_status_code(client);
-        ESP_LOGI(TAG, "Response: %d, %d bytes", status, (int)ctx.len);
+        ESP_LOGI(TAG, "Response: %d, %d bytes", status, (int)ctx.buf.len);
 
         if (status != 200) {
-            ESP_LOGE(TAG, "API error: %s", response_buf);
+            ESP_LOGE(TAG, "API error: %s", ctx.buf.data);
             log_http_failure("LLM request", client, ESP_FAIL);
             err = ESP_FAIL;
-        } else if (ctx.truncated) {
+        } else if (ctx.buf.truncated) {
             ESP_LOGE(TAG, "LLM response truncated");
             err = ESP_ERR_NO_MEM;
         }
@@ -608,11 +607,19 @@ esp_err_t llm_request(const char *request_json, char *response_buf, size_t respo
     }
 
     capture_net_diag_snapshot(&snapshot_after);
-    log_http_diag("llm_request", client, err, status, ctx.len, ctx.truncated,
+    log_http_diag("llm_request", client, err, status, ctx.buf.len, ctx.buf.truncated,
                   started_us, &ctx, &snapshot_before, &snapshot_after);
 
     esp_http_client_cleanup(client);
     http_gate_release();
+
+    // Hand the buffer to the caller only on success; every other outcome
+    // releases it before any fallback retry allocates a fresh one.
+    if (err == ESP_OK) {
+        *response_out = grow_buf_take(&ctx.buf);
+    } else {
+        grow_buf_free(&ctx.buf);
+    }
 
     // Model fallback: tier/rate errors retry once with LLM_FALLBACK_MODEL.
     // llm_swap_model_in_request returns NULL when the body already carries the
@@ -622,7 +629,7 @@ esp_err_t llm_request(const char *request_json, char *response_buf, size_t respo
         if (fallback_body) {
             ESP_LOGW(TAG, "Model unavailable (status %d), falling back to %s",
                      status, LLM_FALLBACK_MODEL);
-            err = llm_request(fallback_body, response_buf, response_buf_size);
+            err = llm_request(fallback_body, response_out);
             free(fallback_body);
         }
     }

@@ -4,7 +4,7 @@
 #include <stdio.h>
 
 #define MOCK_MAX_RESULTS 16
-#define MOCK_RESPONSE_MAX_LEN LLM_RESPONSE_BUF_SIZE
+#define MOCK_RESPONSE_MAX_LEN LLM_RESPONSE_MAX
 
 typedef struct {
     esp_err_t err;
@@ -69,7 +69,7 @@ esp_err_t llm_init(void)
     return ESP_OK;
 }
 
-esp_err_t llm_request(const char *request_json, char *response_buf, size_t response_buf_size)
+esp_err_t llm_request(const char *request_json, char **response_out)
 {
     llm_result_t result = {0};
     const char *default_response =
@@ -91,9 +91,15 @@ esp_err_t llm_request(const char *request_json, char *response_buf, size_t respo
         result.response[sizeof(result.response) - 1] = '\0';
     }
 
-    if (result.err == ESP_OK && response_buf && response_buf_size > 0) {
+    if (response_out) {
+        *response_out = NULL;
+    }
+    if (result.err == ESP_OK && response_out) {
         const char *to_copy = result.has_response ? result.response : default_response;
-        snprintf(response_buf, response_buf_size, "%s", to_copy);
+        *response_out = strdup(to_copy);
+        if (!*response_out) {
+            return ESP_ERR_NO_MEM;
+        }
     }
 
     return result.err;

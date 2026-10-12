@@ -3,6 +3,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_err.h"
@@ -50,25 +51,26 @@ TEST(defaults_to_openai_on_first_init)
 
 TEST(stub_request_returns_response)
 {
-    char response[LLM_RESPONSE_BUF_SIZE];
+    char *response = NULL;
     configure_mock_store("openai", "gpt-5.2", "test-key", NULL);
     ASSERT(llm_init() == ESP_OK);
-    ASSERT(llm_request("{\"message\":\"toggle gpio\"}", response, sizeof(response)) == ESP_OK);
-    ASSERT(response[0] != '\0');
+    ASSERT(llm_request("{\"message\":\"toggle gpio\"}", &response) == ESP_OK);
+    ASSERT(response != NULL && response[0] != '\0');
     ASSERT(strstr(response, "choices") != NULL);
     ASSERT(strstr(response, "gpio_write") != NULL);
+    free(response);
     return 0;
 }
 
 TEST(rejects_invalid_request_args)
 {
-    char response[LLM_RESPONSE_BUF_SIZE] = {0};
+    char *response = NULL;
 
     configure_mock_store("openai", "gpt-5.2", "test-key", NULL);
     ASSERT(llm_init() == ESP_OK);
-    ASSERT(llm_request(NULL, response, sizeof(response)) == ESP_ERR_INVALID_ARG);
-    ASSERT(llm_request("{}", NULL, sizeof(response)) == ESP_ERR_INVALID_ARG);
-    ASSERT(llm_request("{}", response, 0) == ESP_ERR_INVALID_ARG);
+    ASSERT(llm_request(NULL, &response) == ESP_ERR_INVALID_ARG);
+    ASSERT(response == NULL);
+    ASSERT(llm_request("{}", NULL) == ESP_ERR_INVALID_ARG);
     return 0;
 }
 

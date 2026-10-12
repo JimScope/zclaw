@@ -3,6 +3,7 @@ idf_component_register(
         "main.c"
         "agent.c"
         "history.c"
+        "grow_buf.c"
         "agent_commands.c"
         "agent_prompt.c"
         "channel.c"

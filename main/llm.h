@@ -10,10 +10,10 @@ esp_err_t llm_init(void);
 
 // Send a request to LLM API
 // request_json: the complete API request body (OpenAI chat completions format)
-// response_buf: buffer to store the response
-// response_buf_size: size of response buffer
-// Returns ESP_OK on success
-esp_err_t llm_request(const char *request_json, char *response_buf, size_t response_buf_size);
+// response_out: receives the response body
+// On ESP_OK *response_out is a malloc'd JSON string the caller frees.
+// Returns ESP_OK on success (*response_out is NULL otherwise)
+esp_err_t llm_request(const char *request_json, char **response_out);
 
 // Get API URL
 const char *llm_get_api_url(void);

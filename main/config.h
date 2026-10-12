@@ -11,7 +11,8 @@
 // Buffer Sizes
 // -----------------------------------------------------------------------------
 #define LLM_REQUEST_BUF_SIZE    12288   // 12KB for outgoing JSON
-#define LLM_RESPONSE_BUF_SIZE   16384   // 16KB for incoming JSON
+#define LLM_RESPONSE_INITIAL    4096    // 4KB initial heap buffer for incoming JSON
+#define LLM_RESPONSE_MAX        16384   // 16KB hard cap the reply buffer may grow to
 #define CHANNEL_RX_BUF_SIZE     512     // Input line buffer
 #define CHANNEL_TX_BUF_SIZE     1024    // Output response buffer for serial
 #define TOOL_RESULT_BUF_SIZE    512     // Tool execution result

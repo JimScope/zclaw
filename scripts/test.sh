@@ -82,6 +82,7 @@ run_host_tests() {
         test_agent_prompt.c \
         test_voice_buf.c \
         test_history.c \
+        test_grow_buf.c \
         test_runner.c \
         mock_esp.c \
         mock_memory.c \
@@ -105,6 +106,7 @@ run_host_tests() {
         ../../main/agent_commands.c \
         ../../main/agent_prompt.c \
         ../../main/history.c \
+        ../../main/grow_buf.c \
         ../../main/agent.c \
         ../../main/local_admin.c \
         ../../main/gpio_policy.c \

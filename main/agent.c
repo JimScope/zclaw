@@ -59,7 +59,6 @@ static char s_system_prompt_buf[AGENT_SYSTEM_PROMPT_BUF_SIZE];
 static conversation_msg_t s_history_view[HISTORY_MAX_RECORDS];
 
 // Buffers (static to avoid stack overflow)
-static char s_response_buf[LLM_RESPONSE_BUF_SIZE];
 static char s_tool_result_buf[TOOL_RESULT_BUF_SIZE];
 
 typedef struct {
@@ -525,6 +524,7 @@ static void process_message(const char *user_message, message_source_t source)
 
         // Send to LLM with retry
         esp_err_t err = ESP_FAIL;
+        char *response = NULL;
         int retry_delay_ms = LLM_RETRY_BASE_MS;
         int64_t retry_window_started_us = esp_timer_get_time();
 
@@ -538,7 +538,7 @@ static void process_message(const char *user_message, message_source_t source)
             }
 
             int64_t llm_started_us = esp_timer_get_time();
-            err = llm_request(request, s_response_buf, sizeof(s_response_buf));
+            err = llm_request(request, &response);
             metrics.llm_us_total += elapsed_us_since(llm_started_us);
             metrics.llm_calls++;
             if (err == ESP_OK) {
@@ -601,10 +601,15 @@ static void process_message(const char *user_message, message_source_t source)
         char tool_id[64] = {0};
         cJSON *tool_input = NULL;
 
-        if (!json_parse_response(s_response_buf, text_out, sizeof(text_out),
-                                  tool_name, sizeof(tool_name),
-                                  tool_id, sizeof(tool_id),
-                                  &tool_input)) {
+        bool parsed = json_parse_response(response, text_out, sizeof(text_out),
+                                          tool_name, sizeof(tool_name),
+                                          tool_id, sizeof(tool_id),
+                                          &tool_input);
+        // The parser copies what it keeps; the raw reply is no longer needed.
+        free(response);
+        response = NULL;
+
+        if (!parsed) {
             ESP_LOGE(TAG, "Failed to parse response");
             history_rollback_to(history_turn_start, "llm response parse failed");
             send_response("Error: Failed to parse LLM response");
@@ -688,7 +693,6 @@ static void process_message(const char *user_message, message_source_t source)
 void agent_test_reset(void)
 {
     history_clear();
-    memset(s_response_buf, 0, sizeof(s_response_buf));
     memset(s_tool_result_buf, 0, sizeof(s_tool_result_buf));
     s_channel_output_queue = NULL;
     s_last_start_response_us = 0;

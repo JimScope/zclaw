@@ -39,6 +39,7 @@ extern int test_stt_reply_all(void);
 extern int test_agent_prompt_all(void);
 extern int test_voice_buf_all(void);
 extern int test_history_all(void);
+extern int test_grow_buf_all(void);
 
 int main(int argc, char *argv[])
 {
@@ -81,6 +82,7 @@ int main(int argc, char *argv[])
     failures += test_agent_prompt_all();
     failures += test_voice_buf_all();
     failures += test_history_all();
+    failures += test_grow_buf_all();
 
     printf("\n===================\n");
     if (failures == 0) {
