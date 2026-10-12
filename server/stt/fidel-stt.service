@@ -1,0 +1,15 @@
+[Unit]
+Description=Fidel speech to text (IMA-ADPCM in, NVIDIA Riva transcript out)
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/fidel-stt
+ExecStart=%h/fidel-stt/venv/bin/python %h/fidel-stt/server.py
+Environment=STT_PORT=9003
+# STT_TOKEN (created by scripts/deploy-stt.sh), NVIDIA_API_KEY, RIVA_* (mode 600, never committed)
+EnvironmentFile=%h/fidel-stt/.env
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
