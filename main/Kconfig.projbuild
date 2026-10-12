@@ -34,6 +34,15 @@ menu "zclaw Configuration"
             When enabled, returns hardcoded responses instead of calling the LLM API.
             Useful for testing without WiFi (QEMU emulator).
 
+    config ZCLAW_TELEGRAM_ENABLE
+        bool "Enable the Telegram channel"
+        default y
+        help
+            When off, the board never initialises or starts Telegram: no
+            getUpdates polling, no TLS session, no startup message. Replies go
+            to the serial console and the screen, and memory_export writes to
+            the SD card instead.
+
     config ZCLAW_STUB_TELEGRAM
         bool "Stub Telegram (for QEMU testing)"
         default n

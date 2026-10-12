@@ -24,6 +24,13 @@
 #include "esp_system.h"
 #include "driver/gpio.h"
 
+// Telegram runs only when enabled and not stubbed (QEMU).
+#if CONFIG_ZCLAW_TELEGRAM_ENABLE && !CONFIG_ZCLAW_STUB_TELEGRAM
+#define ZCLAW_TELEGRAM_ACTIVE 1
+#else
+#define ZCLAW_TELEGRAM_ACTIVE 0
+#endif
+
 static const char *TAG = "main";
 static bool s_safe_mode = false;
 
@@ -224,8 +231,8 @@ void app_main(void)
     ratelimit_init();
 
     // 7. Initialize Telegram config state
-#if CONFIG_ZCLAW_STUB_TELEGRAM
-    ESP_LOGW(TAG, "Telegram stub mode enabled; skipping Telegram startup");
+#if !ZCLAW_TELEGRAM_ACTIVE
+    ESP_LOGW(TAG, "Telegram disabled (CONFIG_ZCLAW_TELEGRAM_ENABLE=n or stub); skipping Telegram startup");
 #else
     esp_err_t telegram_init_err = telegram_init();  // Missing token is non-fatal
     if (telegram_init_err != ESP_OK && telegram_init_err != ESP_ERR_NOT_FOUND) {
@@ -246,7 +253,7 @@ void app_main(void)
     QueueHandle_t input_queue = xQueueCreate(INPUT_QUEUE_LENGTH, sizeof(channel_msg_t));
     QueueHandle_t channel_output_queue = xQueueCreate(OUTPUT_QUEUE_LENGTH, sizeof(channel_output_msg_t));
     QueueHandle_t telegram_output_queue = NULL;
-#if CONFIG_ZCLAW_STUB_TELEGRAM
+#if !ZCLAW_TELEGRAM_ACTIVE
     bool telegram_enabled = false;
 #else
     bool telegram_enabled = device_configured && !s_safe_mode && telegram_is_configured();
