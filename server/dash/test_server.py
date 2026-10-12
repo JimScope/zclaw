@@ -225,5 +225,83 @@ class SsrfTest(unittest.TestCase):
             httpd.server_close()
 
 
+class HardeningTest(unittest.TestCase):
+    def serve(self, service, token="sekret"):
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.make_handler(service, token=token))
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self.addCleanup(httpd.server_close)
+        self.addCleanup(httpd.shutdown)
+        return httpd.server_address[1]
+
+    def get(self, port, path, token=None):
+        conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        conn.request("GET", path, headers={"X-Dash-Token": token} if token else {})
+        resp = conn.getresponse()
+        resp.read()
+        return resp
+
+    def test_token_required_except_health(self):
+        port = self.serve(server.Dash(FakeFetch()))
+        self.assertEqual(self.get(port, "/cripto.jpg").status, 401)
+        self.assertEqual(self.get(port, "/cripto.jpg", token="wrong").status, 401)
+        self.assertEqual(self.get(port, "/cripto.jpg", token="sekret").status, 200)
+        self.assertEqual(self.get(port, "/health").status, 200)
+
+    def test_crypto_ids_are_validated(self):
+        port = self.serve(server.Dash(FakeFetch()))
+        self.assertEqual(self.get(port, "/cripto.jpg?ids=bitcoin%26x%3D1", token="sekret").status, 400)
+        self.assertEqual(self.get(port, "/cripto.jpg?ids=bit%20coin", token="sekret").status, 400)
+
+    def test_unexpected_candidate_errors_are_skipped(self):
+        import http.client as hc
+
+        def fetch(url):
+            if "first" in url:
+                raise hc.IncompleteRead(b"")
+            return png_bytes()
+
+        dash_service = server.Dash(FakeFetch(), clock=FakeClock(), search=lambda q: ["https://first/x", "https://second/y"],
+                                   fetch_bytes=fetch, is_public=lambda url: True)
+        jpeg, ok = dash_service.image(query="x")
+        self.assertTrue(ok)
+
+    def test_render_errors_become_error_card(self):
+        dash_service = server.Dash(FakeFetch(), clock=FakeClock(), search=lambda q: ["https://a/x"],
+                                   fetch_bytes=lambda url: b"GIF89a broken", is_public=lambda url: True)
+        jpeg, ok = dash_service.image(query="x")
+        self.assertFalse(ok)
+        self.assertTrue(jpeg.startswith(b"\xff\xd8"))
+
+    def test_search_stops_at_deadline(self):
+        clock = FakeClock()
+        fetched = []
+
+        def slow_fetch(url):
+            fetched.append(url)
+            clock.t += 6  # each candidate costs 6 s
+            raise OSError("slow")
+
+        dash_service = server.Dash(FakeFetch(), clock=clock, search=lambda q: [f"https://c{i}/x" for i in range(6)],
+                                   fetch_bytes=slow_fetch, is_public=lambda url: True)
+        dash_service.image(query="x")
+        self.assertLessEqual(len(fetched), 2)
+
+    def test_only_safe_formats_are_decoded(self):
+        import io
+        from PIL import Image
+        buf = io.BytesIO()
+        Image.new("RGB", (64, 64), (1, 2, 3)).save(buf, "BMP")
+        dash_service = server.Dash(FakeFetch(), clock=FakeClock(), search=lambda q: ["https://a/x.bmp"],
+                                   fetch_bytes=lambda url: buf.getvalue(), is_public=lambda url: True)
+        jpeg, ok = dash_service.image(query="bmp")
+        self.assertFalse(ok)
+
+    def test_cache_is_bounded(self):
+        dash_service = server.Dash(FakeFetch(), clock=FakeClock())
+        for i in range(server.CACHE_MAX_ENTRIES + 20):
+            dash_service.weather(10 + i * 0.1, -75.0)
+        self.assertLessEqual(len(dash_service._cache), server.CACHE_MAX_ENTRIES)
+
+
 if __name__ == "__main__":
     unittest.main()

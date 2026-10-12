@@ -7,7 +7,9 @@
 
 #include "esp_err.h"
 
-#define DISPLAY_REMOTE_MAX_BYTES (48 * 1024)
+// Matches server/dash MAX_JPEG_BYTES. Downloads over plain http skip the HTTP
+// gate, so this transient buffer must stay small next to a TLS session.
+#define DISPLAY_REMOTE_MAX_BYTES (32 * 1024)
 
 // Called from the fetch task when the download ends. jpeg is NULL on failure;
 // otherwise the receiver owns it and must free() it.

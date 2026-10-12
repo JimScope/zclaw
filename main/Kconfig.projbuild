@@ -231,6 +231,14 @@ menu "zclaw Configuration"
                 does not wait for a Telegram long-poll; https:// waits for it.
             depends on ZCLAW_DISPLAY_ENABLE
 
+        config ZCLAW_DASH_TOKEN
+            string "Token for the dashboard service (X-Dash-Token header)"
+            default ""
+            depends on ZCLAW_DISPLAY_ENABLE
+            help
+                Shared secret required by server/dash. Keep it in the git-ignored
+                sdkconfig.defaults.<target>, never in the tracked defaults.
+
         config ZCLAW_SD_CS_GPIO
             int "SD card CS GPIO"
             range 0 48

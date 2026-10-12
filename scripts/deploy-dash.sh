@@ -10,6 +10,8 @@ ssh "$HOST" 'mkdir -p ~/fidel-dash ~/.config/systemd/user'
 scp -q "$SRC"/dash.py "$SRC"/server.py "$SRC"/requirements.txt "$HOST":fidel-dash/
 scp -q -r "$SRC"/fonts "$HOST":fidel-dash/
 scp -q "$SRC"/fidel-dash.service "$HOST":.config/systemd/user/fidel-dash.service
+# Shared token for the public /dash routes: created once on the VPS, never overwritten.
+ssh "$HOST" 'umask 077; [ -s ~/fidel-dash/.env ] || echo "DASH_TOKEN=$(head -c 24 /dev/urandom | od -An -tx1 | tr -d " \\n")" > ~/fidel-dash/.env'
 ssh "$HOST" 'cd ~/fidel-dash \
   && { [ -x venv/bin/python ] || python3 -m venv venv; } \
   && venv/bin/pip install -q -r requirements.txt \

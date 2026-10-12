@@ -6,6 +6,8 @@ After=network-online.target
 WorkingDirectory=%h/fidel-dash
 ExecStart=%h/fidel-dash/venv/bin/python %h/fidel-dash/server.py
 Environment=DASH_PORT=9002
+# DASH_TOKEN=<random>, created by scripts/deploy-dash.sh (mode 600, never committed)
+EnvironmentFile=%h/fidel-dash/.env
 Restart=on-failure
 RestartSec=5
 

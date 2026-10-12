@@ -8,7 +8,10 @@ Data: Open-Meteo and CoinGecko, cached in memory (15 min / 2 min).
     GET /cripto.jpg?ids=bitcoin,binancecoin,solana,tron
     GET /health
 
-Deploy (systemd --user unit, no sudo): `scripts/deploy-dash.sh`.
+Deploy (systemd --user unit, no sudo): `scripts/deploy-dash.sh`. Every route except
+`/health` requires the `X-Dash-Token` header; the token lives in `~/fidel-dash/.env`
+on the VPS (created by the deploy script) and in the board's git-ignored
+`sdkconfig.defaults.esp32c6` as `CONFIG_ZCLAW_DASH_TOKEN`.
 
 Caddy (inside the `bolita-cubana.duckdns.org` site block):
 

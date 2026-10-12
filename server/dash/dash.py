@@ -19,8 +19,8 @@ from PIL import Image, ImageDraw, ImageFile, ImageFilter, ImageFont, ImageOps
 SIZE = 240
 # optimize=True needs room for the whole encoded image (busy photos at high quality).
 ImageFile.MAXBLOCK = 1 << 20
-MAX_JPEG_BYTES = 48 * 1024
-JPEG_QUALITY_STEPS = (88, 78, 68, 55, 40, 25)
+MAX_JPEG_BYTES = 32 * 1024  # firmware DISPLAY_REMOTE_MAX_BYTES; keeps the board's transient buffer small
+JPEG_QUALITY_STEPS = (88, 78, 68, 55, 40, 28, 20)
 
 FONT_DIR = Path(__file__).resolve().parent / "fonts"
 BG = (16, 22, 28)
@@ -190,12 +190,13 @@ def _canvas() -> tuple[Image.Image, ImageDraw.ImageDraw]:
 def _encode(img: Image.Image) -> bytes:
     """Baseline 4:4:4 JPEG, stepping quality down until it fits MAX_JPEG_BYTES."""
     data = b""
-    for quality in JPEG_QUALITY_STEPS:
-        buf = io.BytesIO()
-        img.save(buf, "JPEG", quality=quality, subsampling=0, optimize=True, progressive=False)
-        data = buf.getvalue()
-        if len(data) < MAX_JPEG_BYTES:
-            break
+    for attempt in (img, img.filter(ImageFilter.GaussianBlur(1.2))):  # blur only if quality alone fails
+        for quality in JPEG_QUALITY_STEPS:
+            buf = io.BytesIO()
+            attempt.save(buf, "JPEG", quality=quality, subsampling=0, optimize=True, progressive=False)
+            data = buf.getvalue()
+            if len(data) < MAX_JPEG_BYTES:
+                return data
     return data
 
 

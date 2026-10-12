@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "config.h"
 #include "display_hw.h"
 #include "esp_crt_bundle.h"
 #include "esp_http_client.h"
@@ -46,6 +47,9 @@ static uint8_t *download(const char *url, size_t *out_len, bool *server_error)
 
     if (!client) {
         return NULL;
+    }
+    if (CONFIG_ZCLAW_DASH_TOKEN[0] != '\0') {
+        esp_http_client_set_header(client, "X-Dash-Token", CONFIG_ZCLAW_DASH_TOKEN);
     }
     if (esp_http_client_open(client, 0) != ESP_OK) {
         goto done;

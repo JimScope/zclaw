@@ -54,6 +54,7 @@ idf_component_register(
         "display_remote.c"
         "dash_url.c"
         "jpeg_strip.c"
+        "dash_state.c"
         "tools_display.c"
         "text_latin1.c"
         "font8x16.c"

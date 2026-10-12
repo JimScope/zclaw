@@ -157,6 +157,7 @@ class PictureTest(unittest.TestCase):
         import os
         noise = Image.frombytes("RGB", (240, 240), os.urandom(240 * 240 * 3))
         self.assertLess(len(dash.render_picture(noise)), dash.MAX_JPEG_BYTES)
+        self.assertLessEqual(dash.MAX_JPEG_BYTES, 32 * 1024)
 
 
 if __name__ == "__main__":

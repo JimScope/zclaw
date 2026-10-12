@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "dash_state.h"
 #include "dash_url.h"
 #include "display_face.h"
 #include "display_gfx.h"
@@ -59,13 +60,8 @@ static face_state_t s_face;
 static page_rotation_t s_pages;
 
 // Dashboard currently requested (PAGE_REMOTE).
-static int s_dash_index = -1;          // dashboard to fetch, or -1
+static dash_state_t s_dash;             // remote page request + the JPEG it owns
 static const char *s_dash_title = "Imagen";
-static uint32_t s_dash_request = 0;
-static bool s_dash_need_fetch = false;
-static uint8_t *s_dash_jpeg = NULL;   // download for s_dash_request, waiting to be drawn
-static size_t s_dash_len = 0;
-static bool s_dash_failed = false;
 
 static int64_t now_ms(void)
 {
@@ -94,29 +90,21 @@ static void draw_message(const char *title, const char *message)
     display_hw_wait_idle();
 }
 
-static void forget_dash_result(void)
-{
-    free(s_dash_jpeg);
-    s_dash_jpeg = NULL;
-    s_dash_len = 0;
-    s_dash_failed = false;
-}
-
 // Draws the dashboard result if one is waiting; returns whether it drew.
 static bool draw_dash_result(void)
 {
     const char *title = s_dash_title;
 
-    if (s_dash_jpeg) {
-        if (display_remote_draw(s_dash_jpeg, s_dash_len) != ESP_OK) {
+    if (s_dash.jpeg) {
+        if (display_remote_draw(s_dash.jpeg, s_dash.len) != ESP_OK) {
             draw_message(title, "imagen no v\xC3\xA1lida");
         }
-        forget_dash_result();
+        dash_state_clear_result(&s_dash);
         return true;
     }
-    if (s_dash_failed) {
+    if (s_dash.failed) {
         draw_message(title, "sin datos");
-        forget_dash_result();
+        dash_state_clear_result(&s_dash);
         return true;
     }
     return false;
@@ -137,19 +125,19 @@ static void start_dash_fetch(void)
     char url[DASH_URL_MAX];
     char location[64] = {0};
 
-    if (s_dash_index < 0) {
-        s_dash_need_fetch = false;
+    if (s_dash.index < 0) {
+        s_dash.need_fetch = false;
         return;
     }
     (void)memory_get("u_ubicacion", location, sizeof(location));
-    if (!dash_url_build(url, sizeof(url), CONFIG_ZCLAW_DASH_BASE_URL, s_dash_names[s_dash_index],
+    if (!dash_url_build(url, sizeof(url), CONFIG_ZCLAW_DASH_BASE_URL, s_dash_names[s_dash.index],
                         location)) {
-        s_dash_failed = true;
-        s_dash_need_fetch = false;
+        s_dash.need_fetch = false;
+        (void)dash_state_done(&s_dash, s_dash.request, NULL, 0);
         return;
     }
-    if (display_remote_fetch(url, s_dash_request, dash_done)) {
-        s_dash_need_fetch = false;  // otherwise a previous download is still running: retry
+    if (display_remote_fetch(url, s_dash.request, dash_done)) {
+        s_dash.need_fetch = false;  // otherwise a previous download is still running: retry
     }
 }
 
@@ -169,31 +157,18 @@ static void apply_event(const display_event_t *ev, int64_t now)
         page_rotation_show(&s_pages, PAGE_STATUS, ev->value, now);
         break;
     case DISPLAY_EV_SHOW_DASH:
-        forget_dash_result();
-        s_dash_index = (int)ev->extra;
-        s_dash_title = s_dash_titles[s_dash_index];
-        s_dash_request++;
-        s_dash_need_fetch = true;
+        (void)dash_state_request(&s_dash, (int)ev->extra);
+        s_dash_title = s_dash_titles[ev->extra];
         page_rotation_show(&s_pages, PAGE_REMOTE, ev->value, now);
         break;
     case DISPLAY_EV_SHOW_JPEG:
         // Picture already downloaded by the caller (display_image tool).
-        forget_dash_result();
-        s_dash_index = -1;
+        (void)dash_state_picture(&s_dash, ev->ptr, ev->extra);
         s_dash_title = "Imagen";
-        s_dash_request++;
-        s_dash_need_fetch = false;
-        s_dash_jpeg = ev->ptr;
-        s_dash_len = ev->extra;
         page_rotation_show(&s_pages, PAGE_REMOTE, ev->value, now);
         break;
     case DISPLAY_EV_DASH_DONE:
-        if (ev->value == s_dash_request) {
-            forget_dash_result();
-            s_dash_jpeg = ev->ptr;
-            s_dash_len = ev->extra;
-            s_dash_failed = (ev->ptr == NULL);
-        } else {
+        if (!dash_state_done(&s_dash, ev->value, ev->ptr, ev->extra)) {
             free(ev->ptr);  // stale download for an older request
         }
         break;
@@ -207,6 +182,7 @@ static void display_task(void *arg)
     page_t shown = PAGE_FACE;
     display_event_t ev;
 
+    dash_state_init(&s_dash, free);
     face_state_init(&s_face, esp_random(), now_ms());
     page_rotation_init(&s_pages, CONFIG_ZCLAW_FACE_SECONDS * 1000u,
                        CONFIG_ZCLAW_STATUS_SECONDS * 1000u, now_ms());
@@ -222,19 +198,17 @@ static void display_task(void *arg)
         if (sd_card_service(now)) {
             display_face_rescan(&s_face);
         }
-        if (s_dash_need_fetch) {
+        page_t page = page_rotation_update(&s_pages, face_state_is_active(&s_face, now), now);
+        // Releases a JPEG (or makes an in-flight download stale) the moment the
+        // remote page is not active, including requests cancelled before shown.
+        dash_state_page(&s_dash, page == PAGE_REMOTE);
+        if (page == PAGE_REMOTE && s_dash.need_fetch) {
             start_dash_fetch();
         }
 
-        page_t page = page_rotation_update(&s_pages, face_state_is_active(&s_face, now), now);
         if (!have_page || page != shown) {
             if (have_page) {
                 fade_out();
-            }
-            if (shown == PAGE_REMOTE && page != PAGE_REMOTE) {
-                s_dash_request++;  // a download still in flight is now stale
-                s_dash_need_fetch = false;
-                forget_dash_result();
             }
             have_page = true;
             shown = page;
@@ -254,7 +228,7 @@ static void display_task(void *arg)
                 display_hw_wait_idle();
             }
             fade_in();
-        } else if (page == PAGE_REMOTE && (s_dash_jpeg || s_dash_failed)) {
+        } else if (page == PAGE_REMOTE && (s_dash.jpeg || s_dash.failed)) {
             fade_out();
             draw_dash_result();
             fade_in();
