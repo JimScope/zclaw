@@ -57,6 +57,7 @@ idf_component_register(
         "jpeg_strip.c"
         "dash_state.c"
         "tools_display.c"
+        "tools_dashboard.c"
         "text_latin1.c"
         "font8x16.c"
         "frame_format.c"

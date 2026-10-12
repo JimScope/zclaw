@@ -1104,6 +1104,34 @@ TEST(dashboard_commands_do_not_show_answer)
     return 0;
 }
 
+TEST(screen_hint_in_prompt_only_with_display)
+{
+    QueueHandle_t channel_q;
+    const char *reply =
+        "{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\"}";
+
+    reset_state();
+    mock_display_reset();
+    channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
+    ASSERT(channel_q != NULL);
+    agent_test_set_queues(channel_q, NULL);
+
+    mock_display_set_running(true);
+    ASSERT(mock_llm_push_result(ESP_OK, reply));
+    agent_test_process_message("hola");
+    ASSERT(strstr(mock_llm_last_request_json(), "240x240 screen") != NULL);
+    ASSERT(strstr(mock_llm_last_request_json(), "never use markdown") != NULL);
+
+    mock_display_set_running(false);
+    ASSERT(mock_llm_push_result(ESP_OK, reply));
+    agent_test_process_message("adios");
+    ASSERT(strstr(mock_llm_last_request_json(), "240x240 screen") == NULL);
+
+    vQueueDelete(channel_q);
+    mock_display_reset();
+    return 0;
+}
+
 int test_agent_all(void)
 {
     int failures = 0;
@@ -1315,6 +1343,13 @@ int test_agent_all(void)
 
     printf("  dashboard_commands_do_not_show_answer... ");
     if (test_dashboard_commands_do_not_show_answer() == 0) {
+        printf("OK\n");
+    } else {
+        failures++;
+    }
+
+    printf("  screen_hint_in_prompt_only_with_display... ");
+    if (test_screen_hint_in_prompt_only_with_display() == 0) {
         printf("OK\n");
     } else {
         failures++;

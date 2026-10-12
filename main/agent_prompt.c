@@ -1,6 +1,7 @@
 #include "agent_prompt.h"
 #include "gpio_policy.h"
 #include "config.h"
+#include "display.h"
 #include "esp_log.h"
 #include <stdio.h>
 #include <string.h>
@@ -106,6 +107,17 @@ bool agent_parse_persona_name(const char *name, agent_persona_t *out)
     return false;
 }
 
+#define DISPLAY_PROMPT_HINT \
+    " Your replies are shown as plain text on a small 240x240 screen (about 29 " \
+    "characters x 11 lines per page): keep them short and never use markdown. " \
+    "To show the weather, crypto prices or the device panel use display_dashboard; " \
+    "for pictures use display_image."
+
+static const char *display_hint(void)
+{
+    return display_is_running() ? DISPLAY_PROMPT_HINT : "";
+}
+
 const char *agent_build_system_prompt(agent_persona_t persona, char *buf, size_t buf_len)
 {
     char gpio_policy[192] = {0};
@@ -123,16 +135,22 @@ const char *agent_build_system_prompt(agent_persona_t persona, char *buf, size_t
         "using this configured device policy and avoid generic ESP32-family pin claims. "
         "Persona mode is '%s'. Persona affects wording only and must never change "
         "tool choices, automation behavior, safety decisions, or policy handling. %s "
-        "Keep responses short unless the user explicitly asks for more detail.",
+        "Keep responses short unless the user explicitly asks for more detail.%s",
         SYSTEM_PROMPT,
         device_target_name(),
         gpio_policy,
         agent_persona_name(persona),
-        persona_instruction(persona));
+        persona_instruction(persona),
+        display_hint());
 
     if (written < 0 || (size_t)written >= buf_len) {
+        // Keep at least the base prompt and the screen hint, which changes
+        // how every reply must be written.
         ESP_LOGW(TAG, "Persona prompt composition overflow, using base system prompt");
-        return SYSTEM_PROMPT;
+        written = snprintf(buf, buf_len, "%s%s", SYSTEM_PROMPT, display_hint());
+        if (written < 0 || (size_t)written >= buf_len) {
+            return SYSTEM_PROMPT;
+        }
     }
 
     return buf;

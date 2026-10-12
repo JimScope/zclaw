@@ -53,6 +53,10 @@ TOOL_ENTRY("display_image",
            "Show a picture on the device's own 240x240 screen for 30 s. Use 'query' to search the web for it (a game cover, a flag, a place, a person...) or 'url' for a direct image link. Use it whenever the user asks to show or display something on the screen.",
            "{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\"},\"url\":{\"type\":\"string\"}}}",
            tools_display_image_handler)
+TOOL_ENTRY("display_dashboard",
+           "Show a dashboard on the device's own screen for 30 s: 'clima' (weather now, next hours and 3 days), 'cripto' (BNB, SOL, TRX and BTC prices) or 'panel' (clock, WiFi, IP, heap, uptime). Use it whenever the user asks to see the weather, crypto prices or the device status on the screen.",
+           "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\",\"enum\":[\"clima\",\"cripto\",\"panel\"]}},\"required\":[\"name\"]}",
+           tools_display_dashboard_handler)
 #endif
 TOOL_ENTRY("web_search",
            "Search the web (DuckDuckGo). Returns a short plain-text summary of results.",
