@@ -10,12 +10,12 @@ struct tool_def;
 
 // Conversation message
 typedef struct {
-    char role[16];                  // "user" or "assistant"
-    char content[MAX_MESSAGE_LEN];  // The text or tool result
+    const char *role;               // "user" or "assistant"
+    const char *content;            // The text, tool input JSON or tool result
     bool is_tool_use;               // True if this is a tool_use response
     bool is_tool_result;            // True if this is a tool_result
-    char tool_id[64];               // Tool use ID (for tool_use/tool_result)
-    char tool_name[32];             // Tool name (for tool_use)
+    const char *tool_id;            // Tool use ID, "" unless a tool message
+    const char *tool_name;          // Tool name, "" unless a tool_use
 } conversation_msg_t;
 
 // Build the complete API request JSON

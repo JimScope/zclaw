@@ -93,15 +93,11 @@ TEST(build_openai_request_skips_orphan_tool_result)
 {
     mock_llm_set_model("gpt-test-model");
 
-    conversation_msg_t history[2] = {0};
-
-    strncpy(history[0].role, "user", sizeof(history[0].role) - 1);
-    strncpy(history[0].content, "tool completed", sizeof(history[0].content) - 1);
-    history[0].is_tool_result = true;
-    strncpy(history[0].tool_id, "call_orphan", sizeof(history[0].tool_id) - 1);
-
-    strncpy(history[1].role, "user", sizeof(history[1].role) - 1);
-    strncpy(history[1].content, "remember my name is Ted", sizeof(history[1].content) - 1);
+    conversation_msg_t history[2] = {
+        { .role = "user", .content = "tool completed", .is_tool_result = true,
+          .tool_id = "call_orphan", .tool_name = "" },
+        { .role = "user", .content = "remember my name is Ted", .tool_id = "", .tool_name = "" },
+    };
 
     char *request = json_build_request("sys prompt", history, 2, NULL, s_test_tools, 1);
     ASSERT(request != NULL);

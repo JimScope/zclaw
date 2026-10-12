@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "main.c"
         "agent.c"
+        "history.c"
         "agent_commands.c"
         "agent_prompt.c"
         "channel.c"

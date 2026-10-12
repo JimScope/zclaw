@@ -2,6 +2,7 @@
 #include "agent_commands.h"
 #include "agent_prompt.h"
 #include "config.h"
+#include "history.h"
 #include "local_admin.h"
 #include "llm.h"
 #include "tools.h"
@@ -55,8 +56,7 @@ static bool s_messages_paused = false;
 static char s_system_prompt_buf[AGENT_SYSTEM_PROMPT_BUF_SIZE];
 
 // Conversation history (rolling message buffer)
-static conversation_msg_t s_history[MAX_HISTORY_TURNS * 2];
-static int s_history_len = 0;
+static conversation_msg_t s_history_view[HISTORY_MAX_RECORDS];
 
 // Buffers (static to avoid stack overflow)
 static char s_response_buf[LLM_RESPONSE_BUF_SIZE];
@@ -107,50 +107,12 @@ static void metrics_log_request(const request_metrics_t *metrics, const char *ou
              metrics->tool_calls);
 }
 
-static void history_rollback_to(int marker, const char *reason)
+static void history_rollback_to(history_mark_t mark, const char *reason)
 {
-    if (marker < 0 || marker > s_history_len || marker == s_history_len) {
-        return;
-    }
-
-    ESP_LOGW(TAG, "Rolling back conversation history (%d -> %d): %s",
-             s_history_len, marker, reason ? reason : "unknown");
-    memset(&s_history[marker], 0, (s_history_len - marker) * sizeof(conversation_msg_t));
-    s_history_len = marker;
-}
-
-// Add a message to history
-static void history_add(const char *role, const char *content,
-                        bool is_tool_use, bool is_tool_result,
-                        const char *tool_id, const char *tool_name)
-{
-    // Drop one oldest message when full.
-    // Tool interactions can span more than 2 messages, so pair-based trimming is unsafe.
-    if (s_history_len >= MAX_HISTORY_TURNS * 2) {
-        memmove(&s_history[0], &s_history[1], (MAX_HISTORY_TURNS * 2 - 1) * sizeof(conversation_msg_t));
-        s_history_len -= 1;
-    }
-
-    conversation_msg_t *msg = &s_history[s_history_len++];
-    strncpy(msg->role, role, sizeof(msg->role) - 1);
-    msg->role[sizeof(msg->role) - 1] = '\0';
-    strncpy(msg->content, content, sizeof(msg->content) - 1);
-    msg->content[sizeof(msg->content) - 1] = '\0';
-    msg->is_tool_use = is_tool_use;
-    msg->is_tool_result = is_tool_result;
-
-    if (tool_id) {
-        strncpy(msg->tool_id, tool_id, sizeof(msg->tool_id) - 1);
-        msg->tool_id[sizeof(msg->tool_id) - 1] = '\0';
-    } else {
-        msg->tool_id[0] = '\0';
-    }
-
-    if (tool_name) {
-        strncpy(msg->tool_name, tool_name, sizeof(msg->tool_name) - 1);
-        msg->tool_name[sizeof(msg->tool_name) - 1] = '\0';
-    } else {
-        msg->tool_name[0] = '\0';
+    int dropped = history_rollback(mark);
+    if (dropped > 0) {
+        ESP_LOGW(TAG, "Rolling back conversation history (%d messages): %s",
+                 dropped, reason ? reason : "unknown");
     }
 }
 
@@ -349,7 +311,7 @@ static void handle_settings_command(void)
 static void process_message(const char *user_message, message_source_t source)
 {
     ESP_LOGI(TAG, "Processing: %s", user_message);
-    int history_turn_start = s_history_len;
+    history_mark_t history_turn_start = history_mark();
     bool is_non_command_message = !agent_is_slash_command(user_message);
     bool is_cron_trigger = agent_is_cron_trigger_message(user_message);
     s_reply_label = is_cron_trigger ? "Tarea:"
@@ -534,8 +496,8 @@ static void process_message(const char *user_message, message_source_t source)
         // Build request JSON (user message already in history)
         char *request = json_build_request(
             agent_build_system_prompt(s_system_prompt_buf, sizeof(s_system_prompt_buf)),
-            s_history,
-            s_history_len,
+            s_history_view,
+            history_view(s_history_view, HISTORY_MAX_RECORDS),
             NULL,  // User message already in history
             tools,
             tool_count
@@ -725,8 +687,7 @@ static void process_message(const char *user_message, message_source_t source)
 #ifdef TEST_BUILD
 void agent_test_reset(void)
 {
-    memset(s_history, 0, sizeof(s_history));
-    s_history_len = 0;
+    history_clear();
     memset(s_response_buf, 0, sizeof(s_response_buf));
     memset(s_tool_result_buf, 0, sizeof(s_tool_result_buf));
     s_channel_output_queue = NULL;
