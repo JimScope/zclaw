@@ -93,9 +93,20 @@ static int channel_io_read_byte(uint8_t *byte, TickType_t timeout_ticks)
     return usb_serial_jtag_read_bytes(byte, 1, timeout_ticks);
 }
 
+// The TX ring buffer (CHANNEL_RX_BUF_SIZE bytes) rejects, and so drops, any
+// single write larger than itself: send long replies in pieces.
+#define CHANNEL_TX_CHUNK (CHANNEL_RX_BUF_SIZE / 2)
+
 static void channel_io_write_bytes(const uint8_t *data, size_t len, TickType_t timeout_ticks)
 {
-    usb_serial_jtag_write_bytes((uint8_t *)data, len, timeout_ticks);
+    while (len > 0) {
+        size_t n = len < CHANNEL_TX_CHUNK ? len : CHANNEL_TX_CHUNK;
+        if (usb_serial_jtag_write_bytes((uint8_t *)data, n, timeout_ticks) <= 0) {
+            return;
+        }
+        data += n;
+        len -= n;
+    }
 }
 #endif
 
