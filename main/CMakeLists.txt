@@ -58,6 +58,8 @@ idf_component_register(
         "adpcm.c"
         "audio_dsp.c"
         "audio_level.c"
+        "clap_detect.c"
+        "endpoint.c"
         "display_status.c"
         "display_face.c"
         "display_remote.c"
