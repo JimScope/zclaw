@@ -15,7 +15,7 @@
 - Repo `~/Projects/zclaw`, branch `fidel`. ESP-IDF v5.5.5 at `~/esp/esp-idf`. Firmware build: `source ~/esp/esp-idf/export.sh >/dev/null 2>&1 && idf.py build > build/idf-build.log 2>&1; grep -E "Project build complete|error:" build/idf-build.log | head -5`.
 - Identifiers, comments and commit messages are in English. Text shown on the screen or the web page is in Spanish (UTF-8 written with `\xNN` escapes in C sources, as the existing code does).
 - Never commit or print secrets. `sdkconfig` and `sdkconfig.defaults.esp32c6` are git-ignored and hold the dashboard token, API keys and the OTA PIN. Never `cat` or `grep` them without filtering the value, never delete `sdkconfig`, and never create dated `*.bak` copies.
-- Ask the user before flashing over USB (Task 8). Changes that need sudo on the VPS are run by the user (none are expected here).
+- Ask the user before flashing over USB (Task 9). Changes that need sudo on the VPS are run by the user (none are expected here).
 - Host tests must stay warning-clean: `-std=c99 -Wall -Wextra -Werror -Wshadow -Wformat=2`, with ASan/UBSan where `scripts/test.sh` enables them.
 - **Host gate.** Before Task 1, copy `.superpowers/sdd/2026-10-11-display-sd/host-gate.sh` and `baseline-failures.txt` into this plan's workspace `.superpowers/sdd/2026-10-11-screen-answers/`. The gate command is `bash .superpowers/sdd/2026-10-11-screen-answers/host-gate.sh` and its expected output starts with `host gate OK`.
   - Only the two baseline failures are tolerated: `test_agent.c` line 784 (`Device target is`) and `test_builtin_tools_registry.c:103`.
@@ -53,7 +53,7 @@
 2. **A reply made of dozens of short lines** (lists). It must stop at 6 pages with `...` on the last kept line, never overflow the line array. Covered by Task 2 `too_many_lines_end_with_ellipsis`.
 3. **A long prompt.** The header must stay within 2 lines and end in `...`, without pushing the body down. Covered by Task 2 `header_clipped_to_two_lines`.
 4. **A tool page followed by the text reply** ("muéstrame el clima"). The dashboard must stay for its 30 s. Covered by Task 3 `answer_does_not_cover_tool_page_of_same_turn`.
-5. **A wrong file uploaded to the OTA page** (a JPEG, or a truncated `.bin`). The page must show an error, the board must not reboot, and the running firmware must stay untouched. This is ESP-only code, so it has no host test; Task 8 step 6 checks it on the board.
+5. **A wrong file uploaded to the OTA page** (a JPEG, or a truncated `.bin`). The page must show an error, the board must not reboot, and the running firmware must stay untouched. This is ESP-only code, so it has no host test; Task 9 step 6 checks it on the board.
 
 ---
 
@@ -68,7 +68,7 @@
 - Consumes: nothing.
 - Produces: `CONFIG_ZCLAW_TELEGRAM_ENABLE` (bool, default `y`). With `n`, `telegram_is_configured()` returns false at runtime because `telegram_init()` never runs. Task 6 relies on this.
 
-This task is configuration and wiring only, so there is no host test (TDD exception: configuration). The build and the board log in Task 8 verify it.
+This task is configuration and wiring only, so there is no host test (TDD exception: configuration). The build and the board log in Task 9 verify it.
 
 - [ ] **Step 1: Add the Kconfig option**
 
@@ -2440,7 +2440,7 @@ int web_ota_request_status(size_t content_len, size_t partition_size, bool pin_o
 }
 ```
 
-`s_current_ip` exists only in the device build: `main/local_admin.c` lines 33–463 are `#ifndef TEST_BUILD`. So the getter is device-only, and nothing on the host calls it; `display_status.c` is not host-compiled. A host test could only check a stub. Task 8 step 4 checks the real value on the board instead (TDD exception: a one-line device-only accessor).
+`s_current_ip` exists only in the device build: `main/local_admin.c` lines 33–463 are `#ifndef TEST_BUILD`. So the getter is device-only, and nothing on the host calls it; `display_status.c` is not host-compiled. A host test could only check a stub. Task 9 step 4 checks the real value on the board instead (TDD exception: a one-line device-only accessor).
 
 In `main/local_admin.h`, add:
 
@@ -2811,7 +2811,646 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 
-### Task 8: Verification on the board and the other configuration
+### Task 8: Task log on the SD and tasks section on the web page
+
+Added after the plan review (spec §7b, user request): scheduled-task replies are kept on the SD card and listed on the web page together with the scheduled tasks.
+
+**Files:**
+- Create: `main/task_log_format.h`, `main/task_log_format.c` (pure), `main/task_log.h`, `main/task_log.c` (ESP, `#if CONFIG_ZCLAW_SD_ENABLE`)
+- Create: `test/host/test_task_log_format.c`, `test/host/mock_task_log.h`, `test/host/mock_task_log.c`
+- Modify: `main/agent.c` (log cron replies), `main/web_ota.c` (two GET handlers + page), `main/CMakeLists.txt`
+- Modify: `test/host/test_agent.c` (append 2 tests + registration), `test/host/test_runner.c`, `scripts/test.sh`
+
+**Interfaces:**
+- Consumes:
+  - from Task 4: `s_reply_prompt` (the cron action without its prefix) and the `is_cron_trigger` flag in `agent.c`;
+  - from Task 7: `web_ota.c` with `reply()`, `WEB_OTA_BAD_PIN_MS`, `web_ota_pin_matches()`, and the page strings;
+  - existing: `void cron_list(char *buf, size_t buf_len)`, which writes a JSON array.
+- Produces:
+  - `size_t task_log_format_line(char *out, size_t out_len, uint32_t when, const char *action, const char *reply);`
+  - `void task_log_append(const char *action, const char *reply);`
+  - `int task_log_read_recent(size_t max, task_log_visit_fn visit, void *ctx);`
+  - `GET /tasks` and `GET /log`.
+
+Design decisions:
+- **D7, English file names.** The log is `/sdcard/log/tasks.log`, following the repo rule that paths are in English.
+- **D8, only task replies are logged.** Only replies of cron-triggered turns go to the log; serial conversations do not.
+
+- [ ] **Step 1: Write the failing tests**
+
+`main/task_log_format.h`:
+
+```c
+#ifndef TASK_LOG_FORMAT_H
+#define TASK_LOG_FORMAT_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+#define TASK_LOG_ACTION_MAX 256   // bytes of the cron action kept
+#define TASK_LOG_REPLY_MAX  1024  // bytes of the reply kept
+// Worst case: 10-digit time, two tabs, every byte escaped, '\n' and NUL.
+#define TASK_LOG_LINE_MAX   (10 + 1 + 2 * TASK_LOG_ACTION_MAX + 1 + 2 * TASK_LOG_REPLY_MAX + 2)
+
+// One record: "<unix seconds>\t<action>\t<reply>\n". Inside the fields a
+// backslash, newline and tab become "\\", "\n" and "\t" (two characters)
+// and '\r' is dropped, so a record is always one line. Fields are clipped,
+// never inside a UTF-8 character, to TASK_LOG_ACTION_MAX / TASK_LOG_REPLY_MAX
+// bytes. Returns the line length, or 0 (empty string) when out_len is
+// smaller than TASK_LOG_LINE_MAX.
+size_t task_log_format_line(char *out, size_t out_len, uint32_t when, const char *action,
+                            const char *reply);
+
+#endif // TASK_LOG_FORMAT_H
+```
+
+`test/host/test_task_log_format.c`:
+
+```c
+/*
+ * Host tests for the task log record format.
+ */
+
+#include <stdio.h>
+#include <string.h>
+
+#include "task_log_format.h"
+
+#define TEST(name) static int test_##name(void)
+#define ASSERT(cond) do { \
+    if (!(cond)) { \
+        printf("  FAIL: %s (line %d)\n", #cond, __LINE__); \
+        return 1; \
+    } \
+} while(0)
+
+static char s_line[TASK_LOG_LINE_MAX];
+
+TEST(formats_time_action_and_reply)
+{
+    size_t n = task_log_format_line(s_line, sizeof(s_line), 1760216400u, "dime el clima", "Soleado, 31 C.");
+    ASSERT(strcmp(s_line, "1760216400\tdime el clima\tSoleado, 31 C.\n") == 0);
+    ASSERT(n == strlen(s_line));
+    return 0;
+}
+
+TEST(escapes_newline_tab_and_backslash)
+{
+    task_log_format_line(s_line, sizeof(s_line), 7, "a\tb", "uno\ndos\\tres\r\n");
+    ASSERT(strcmp(s_line, "7\ta\\tb\tuno\\ndos\\\\tres\\n\n") == 0);
+    return 0;
+}
+
+TEST(clips_fields_without_splitting_utf8)
+{
+    static char action[300];
+    static char reply[1100];
+    memset(action, 'a', 299);
+    action[299] = '\0';
+    memset(reply, 'b', 1023);
+    memcpy(reply + 1023, "\xC3\xB1", 3);  /* 1025 bytes: the cut at 1024 would split the n-tilde */
+    task_log_format_line(s_line, sizeof(s_line), 1, action, reply);
+    const char *tab2 = strchr(strchr(s_line, '\t') + 1, '\t');
+    ASSERT(tab2 - strchr(s_line, '\t') - 1 == 256);
+    ASSERT(strlen(tab2 + 1) == 1023 + 1);  /* 1023 'b' + '\n' */
+    return 0;
+}
+
+TEST(null_fields_are_empty)
+{
+    task_log_format_line(s_line, sizeof(s_line), 5, NULL, NULL);
+    ASSERT(strcmp(s_line, "5\t\t\n") == 0);
+    return 0;
+}
+
+TEST(rejects_small_buffer)
+{
+    char small[64];
+    ASSERT(task_log_format_line(small, sizeof(small), 1, "a", "b") == 0);
+    ASSERT(small[0] == '\0');
+    return 0;
+}
+
+int test_task_log_format_all(void)
+{
+    int failures = 0;
+
+    printf("\nTask Log Format Tests:\n");
+
+#define RUN(name) do { \
+    printf("  " #name "... "); \
+    if (test_##name() == 0) { printf("OK\n"); } else { failures++; } \
+} while(0)
+
+    RUN(formats_time_action_and_reply);
+    RUN(escapes_newline_tab_and_backslash);
+    RUN(clips_fields_without_splitting_utf8);
+    RUN(null_fields_are_empty);
+    RUN(rejects_small_buffer);
+
+#undef RUN
+    return failures;
+}
+```
+
+`main/task_log.h`:
+
+```c
+#ifndef TASK_LOG_H
+#define TASK_LOG_H
+
+#include <stdbool.h>
+#include <stddef.h>
+
+#define TASK_LOG_RECENT 20
+
+// Append a scheduled task's reply to /sdcard/log/tasks.log. No-op without a
+// mounted SD card (or when CONFIG_ZCLAW_SD_ENABLE is off).
+void task_log_append(const char *action, const char *reply);
+
+// Calls visit(line) for up to `max` (<= TASK_LOG_RECENT) most recent records,
+// newest first, each without its '\n'; stops early when visit returns false.
+// Returns how many were visited, or -1 without SD card or log file.
+typedef bool (*task_log_visit_fn)(const char *line, void *ctx);
+int task_log_read_recent(size_t max, task_log_visit_fn visit, void *ctx);
+
+#endif // TASK_LOG_H
+```
+
+`test/host/mock_task_log.h`:
+
+```c
+#ifndef MOCK_TASK_LOG_H
+#define MOCK_TASK_LOG_H
+
+void mock_task_log_reset(void);
+int mock_task_log_calls(void);
+const char *mock_task_log_last_action(void);
+const char *mock_task_log_last_reply(void);
+
+#endif // MOCK_TASK_LOG_H
+```
+
+`test/host/mock_task_log.c`:
+
+```c
+#include "task_log.h"
+#include "mock_task_log.h"
+
+#include <stdio.h>
+
+static int s_calls = 0;
+static char s_action[300] = "";
+static char s_reply[1100] = "";
+
+void mock_task_log_reset(void)
+{
+    s_calls = 0;
+    s_action[0] = '\0';
+    s_reply[0] = '\0';
+}
+
+int mock_task_log_calls(void)
+{
+    return s_calls;
+}
+
+const char *mock_task_log_last_action(void)
+{
+    return s_action;
+}
+
+const char *mock_task_log_last_reply(void)
+{
+    return s_reply;
+}
+
+void task_log_append(const char *action, const char *reply)
+{
+    s_calls++;
+    snprintf(s_action, sizeof(s_action), "%s", action ? action : "");
+    snprintf(s_reply, sizeof(s_reply), "%s", reply ? reply : "");
+}
+
+int task_log_read_recent(size_t max, task_log_visit_fn visit, void *ctx)
+{
+    (void)max;
+    (void)visit;
+    (void)ctx;
+    return -1;
+}
+```
+
+Append to `test/host/test_agent.c`, before `int test_agent_all(void)`. Add `#include "mock_task_log.h"` only as part of this block, **not** at the top of the file, so line 784 does not move. Put the include line right above the first new test; a mid-file include is valid C.
+
+```c
+#include "mock_task_log.h"
+
+TEST(cron_reply_goes_to_task_log)
+{
+    QueueHandle_t channel_q;
+    const char *reply =
+        "{\"content\":[{\"type\":\"text\",\"text\":\"Hora de la medicina.\"}],\"stop_reason\":\"end_turn\"}";
+
+    reset_state();
+    mock_task_log_reset();
+    channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
+    ASSERT(channel_q != NULL);
+    agent_test_set_queues(channel_q, NULL);
+    ASSERT(mock_llm_push_result(ESP_OK, reply));
+
+    agent_test_process_message("[CRON 5] recuerdame la medicina");
+
+    ASSERT(mock_task_log_calls() == 1);
+    ASSERT_STR_EQ(mock_task_log_last_action(), "recuerdame la medicina");
+    ASSERT_STR_EQ(mock_task_log_last_reply(), "Hora de la medicina.");
+
+    vQueueDelete(channel_q);
+    return 0;
+}
+
+TEST(serial_reply_is_not_logged)
+{
+    QueueHandle_t channel_q;
+    const char *reply =
+        "{\"content\":[{\"type\":\"text\",\"text\":\"Hola.\"}],\"stop_reason\":\"end_turn\"}";
+
+    reset_state();
+    mock_task_log_reset();
+    channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));
+    ASSERT(channel_q != NULL);
+    agent_test_set_queues(channel_q, NULL);
+    ASSERT(mock_llm_push_result(ESP_OK, reply));
+
+    agent_test_process_message("hola");
+
+    ASSERT(mock_task_log_calls() == 0);
+
+    vQueueDelete(channel_q);
+    return 0;
+}
+```
+
+Register both at the end of `test_agent_all`, before `return failures;`, in the same `printf` + `if` style as the other agent tests (`cron_reply_goes_to_task_log`, `serial_reply_is_not_logged`).
+
+Register the new files:
+- `test_runner.c`: add `extern int test_task_log_format_all(void);` and `    failures += test_task_log_format_all();`.
+- `scripts/test.sh`:
+  - add `        test_task_log_format.c \` after `        test_web_ota_policy.c \`;
+  - add `        mock_task_log.c \` after `        mock_display.c \`;
+  - add `        ../../main/task_log_format.c \` after `        ../../main/web_ota_policy.c \`.
+- Create `main/task_log_format.c` holding only `#include "task_log_format.h"`.
+
+- [ ] **Step 2: Run to see it fail**
+
+Run: `bash .superpowers/sdd/2026-10-11-screen-answers/host-gate.sh`
+Expected: `host gate FAILED`, because `task_log_format_line` is undefined.
+
+Stub `task_log_format_line` to `return 0;`, so the agent tests run too. Run again. Expected: `host gate FAILED`, with the diff listing the format tests and `mock_task_log_calls() == 1` (the agent does not log yet).
+
+- [ ] **Step 3: Implement the format**
+
+`main/task_log_format.c`:
+
+```c
+#include "task_log_format.h"
+
+#include <stdio.h>
+#include <string.h>
+
+// Bytes of s to keep: at most max, never cutting a UTF-8 character.
+static size_t utf8_prefix(const char *s, size_t max)
+{
+    size_t n = strlen(s);
+
+    if (n <= max) {
+        return n;
+    }
+    n = max;
+    while (n > 0 && ((unsigned char)s[n] & 0xC0) == 0x80) {
+        n--;
+    }
+    return n;
+}
+
+static size_t escape_field(char *out, const char *src, size_t max)
+{
+    size_t w = 0;
+
+    if (!src) {
+        return 0;
+    }
+    size_t n = utf8_prefix(src, max);
+    for (size_t i = 0; i < n; i++) {
+        char c = src[i];
+        if (c == '\\') {
+            out[w++] = '\\';
+            out[w++] = '\\';
+        } else if (c == '\n') {
+            out[w++] = '\\';
+            out[w++] = 'n';
+        } else if (c == '\t') {
+            out[w++] = '\\';
+            out[w++] = 't';
+        } else if (c != '\r') {
+            out[w++] = c;
+        }
+    }
+    return w;
+}
+
+size_t task_log_format_line(char *out, size_t out_len, uint32_t when, const char *action,
+                            const char *reply)
+{
+    size_t w;
+
+    if (!out || out_len == 0) {
+        return 0;
+    }
+    if (out_len < TASK_LOG_LINE_MAX) {
+        out[0] = '\0';
+        return 0;
+    }
+    // newlib nano printf has no %llu; 32-bit seconds last until 2106.
+    w = (size_t)snprintf(out, out_len, "%lu\t", (unsigned long)when);
+    w += escape_field(out + w, action, TASK_LOG_ACTION_MAX);
+    out[w++] = '\t';
+    w += escape_field(out + w, reply, TASK_LOG_REPLY_MAX);
+    out[w++] = '\n';
+    out[w] = '\0';
+    return w;
+}
+```
+
+- [ ] **Step 4: Log cron replies in the agent**
+
+In `main/agent.c`:
+- add `#include "task_log.h"`;
+- next to `s_reply_label` / `s_reply_prompt`, add `static bool s_reply_is_task = false;  // cron turn: replies go to the task log`;
+- in `process_message`, after the two `s_reply_*` assignments, add `s_reply_is_task = is_cron_trigger;`;
+- in `send_response`, after the `display_show_answer` line, add:
+
+```c
+    if (s_reply_is_task) {
+        task_log_append(s_reply_prompt, text ? text : "");
+    }
+```
+
+- in `agent_task`, next to `s_reply_prompt = "";`, add `s_reply_is_task = false;`.
+
+Run the host gate. Expected: `host gate OK`.
+
+- [ ] **Step 5: SD side, `task_log.c`**
+
+```c
+#include "task_log.h"
+
+#include "config.h"
+
+#if CONFIG_ZCLAW_SD_ENABLE
+
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <time.h>
+
+#include "esp_log.h"
+#include "sd_card.h"
+#include "task_log_format.h"
+
+#define TASK_LOG_DIR          SD_MOUNT_POINT "/log"
+#define TASK_LOG_FILE         TASK_LOG_DIR "/tasks.log"
+#define TASK_LOG_OLD_FILE     TASK_LOG_DIR "/tasks.old.log"
+#define TASK_LOG_ROTATE_BYTES (64 * 1024)
+#define TASK_LOG_TAIL_BYTES   ((TASK_LOG_RECENT + 1) * TASK_LOG_LINE_MAX)
+
+static const char *TAG = "task_log";
+
+void task_log_append(const char *action, const char *reply)
+{
+    struct stat st;
+
+    if (!sd_card_is_mounted()) {
+        return;
+    }
+    if (mkdir(TASK_LOG_DIR, 0775) != 0 && errno != EEXIST) {
+        ESP_LOGW(TAG, "Cannot create %s", TASK_LOG_DIR);
+        return;
+    }
+    if (stat(TASK_LOG_FILE, &st) == 0 && st.st_size > TASK_LOG_ROTATE_BYTES) {
+        remove(TASK_LOG_OLD_FILE);
+        rename(TASK_LOG_FILE, TASK_LOG_OLD_FILE);
+    }
+    char *line = malloc(TASK_LOG_LINE_MAX);
+    if (!line) {
+        return;
+    }
+    size_t len = task_log_format_line(line, TASK_LOG_LINE_MAX, (uint32_t)time(NULL), action, reply);
+    FILE *f = fopen(TASK_LOG_FILE, "a");
+    if (!f || fwrite(line, 1, len, f) != len) {
+        ESP_LOGW(TAG, "Cannot write %s", TASK_LOG_FILE);
+    }
+    if (f) {
+        fclose(f);
+    }
+    free(line);
+}
+
+int task_log_read_recent(size_t max, task_log_visit_fn visit, void *ctx)
+{
+    long starts[TASK_LOG_RECENT];
+    size_t count = 0;
+    size_t head = 0;
+    struct stat st;
+
+    if (!visit || max == 0 || !sd_card_is_mounted() || stat(TASK_LOG_FILE, &st) != 0) {
+        return -1;
+    }
+    if (max > TASK_LOG_RECENT) {
+        max = TASK_LOG_RECENT;
+    }
+    FILE *f = fopen(TASK_LOG_FILE, "r");
+    char *line = malloc(TASK_LOG_LINE_MAX);
+    if (!f || !line) {
+        if (f) {
+            fclose(f);
+        }
+        free(line);
+        return -1;
+    }
+    long pos = st.st_size > TASK_LOG_TAIL_BYTES ? (long)(st.st_size - TASK_LOG_TAIL_BYTES) : 0;
+    if (pos > 0 && fseek(f, pos, SEEK_SET) == 0 && fgets(line, TASK_LOG_LINE_MAX, f)) {
+        pos = ftell(f);  // skip the partial first line
+    }
+    // Ring with the start offsets of the last `max` lines.
+    while (fgets(line, TASK_LOG_LINE_MAX, f)) {
+        starts[head] = pos;
+        head = (head + 1) % max;
+        if (count < max) {
+            count++;
+        }
+        pos = ftell(f);
+    }
+    size_t visited = 0;
+    for (size_t i = 0; i < count; i++) {
+        size_t idx = (head + max - 1 - i) % max;
+        if (fseek(f, starts[idx], SEEK_SET) != 0 || !fgets(line, TASK_LOG_LINE_MAX, f)) {
+            break;
+        }
+        line[strcspn(line, "\n")] = '\0';
+        visited++;
+        if (!visit(line, ctx)) {
+            break;
+        }
+    }
+    fclose(f);
+    free(line);
+    return (int)visited;
+}
+
+#else  // !CONFIG_ZCLAW_SD_ENABLE
+
+void task_log_append(const char *action, const char *reply)
+{
+    (void)action;
+    (void)reply;
+}
+
+int task_log_read_recent(size_t max, task_log_visit_fn visit, void *ctx)
+{
+    (void)max;
+    (void)visit;
+    (void)ctx;
+    return -1;
+}
+
+#endif
+```
+
+Add `"task_log.c"` and `"task_log_format.c"` to `main/CMakeLists.txt` after `"backup_name.c"`.
+
+- [ ] **Step 6: Web side, `/tasks`, `/log` and the page section**
+
+In `main/web_ota.c`:
+- add `#include "cron.h"` and `#include "task_log.h"`, and `#define WEB_TASKS_BUF 8192`.
+- In `PAGE_HEAD`, replace `"font-size:1em;margin:.5em 0;padding:.4em;box-sizing:border-box}</style>"` with:
+
+```c
+    "font-size:1em;margin:.5em 0;padding:.4em;box-sizing:border-box}"
+    "pre{white-space:pre-wrap;font-family:inherit;margin:0 0 .8em}.h{color:#777;margin:.8em 0 0}</style>"
+```
+
+- Replace `PAGE_TAIL` with:
+
+```c
+static const char PAGE_TAIL[] =
+    "<input id=p type=password placeholder=PIN autocomplete=off>"
+    "<h2>Tareas</h2><button id=v>Ver tareas y avisos</button><div id=T></div>"
+    "<h2>Firmware</h2>"
+    "<input id=f type=file accept=.bin><button id=b>Actualizar</button><p id=r></p>"
+    "<script>"
+    "function el(t,x,c){const e=document.createElement(t);e.textContent=x;if(c)e.className=c;return e}"
+    "function when(s){const t=+s;return t<1.6e9?'sin hora':new Date(t*1e3).toLocaleString('es',"
+    "{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}"
+    "function sched(j){return j.type=='daily'?'diaria '+j.time:j.type=='periodic'?"
+    "'cada '+j.interval_minutes+' min':j.type=='once'?'una vez':'condici\xC3\xB3n'}"
+    "function un(s){return(s||'').replace(/\\\\(n|t|\\\\)/g,(m,c)=>c=='n'?'\\n':c=='t'?'\\t':'\\\\')}"
+    "v.onclick=async()=>{T.textContent='Cargando...';const h={headers:{'X-OTA-PIN':p.value}};"
+    "try{const a=await fetch('/tasks',h);if(!a.ok){T.textContent=await a.text();return}"
+    "const tasks=await a.json();const l=await(await fetch('/log',h)).text();T.textContent='';"
+    "T.append(el('h3','Programadas'));if(!tasks.length)T.append(el('p','Ninguna'));"
+    "for(const j of tasks)T.append(el('p','#'+j.id+'  '+sched(j)+(j.enabled?'':' (pausada)')+'  '+j.action));"
+    "T.append(el('h3','\xC3\x9Altimos avisos'));const ls=l.split('\\n').filter(x=>x);"
+    "if(!ls.length)T.append(el('p','Sin avisos (\xC2\xBFhay SD?)'));"
+    "for(const x of ls){const q=x.split('\\t');T.append(el('p',when(q[0])+'  Tarea: '+un(q[1]),'h'));"
+    "T.append(el('pre',un(q[2])))}}catch(e){T.textContent='Error de red: '+e}};"
+    "b.onclick=async()=>{const x=f.files[0];"
+    "if(!x){r.textContent='Elige el archivo .bin';return}"
+    "if(x.size>MAX){r.textContent='El archivo no cabe en la partici\xC3\xB3n';return}"
+    "b.disabled=true;r.textContent='Subiendo '+Math.round(x.size/1024)+' KB...';"
+    "try{const s=await fetch('/ota',{method:'POST',headers:{'X-OTA-PIN':p.value},body:x});"
+    "r.textContent=await s.text()}catch(e){r.textContent='Error de red: '+e}"
+    "b.disabled=false}</script>";
+```
+
+- Above `ota_post`, add:
+
+```c
+// True with the right PIN; otherwise waits, replies 401 and returns false.
+static bool check_pin(httpd_req_t *req)
+{
+    char pin[WEB_OTA_PIN_MAX + 2];
+
+    if (httpd_req_get_hdr_value_str(req, "X-OTA-PIN", pin, sizeof(pin)) == ESP_OK &&
+        web_ota_pin_matches(pin, CONFIG_ZCLAW_WEB_OTA_PIN)) {
+        return true;
+    }
+    ESP_LOGW(TAG, "Wrong PIN");
+    vTaskDelay(pdMS_TO_TICKS(WEB_OTA_BAD_PIN_MS));
+    reply(req, "401 Unauthorized", "PIN incorrecto");
+    return false;
+}
+
+static esp_err_t tasks_get(httpd_req_t *req)
+{
+    if (!check_pin(req)) {
+        return ESP_OK;
+    }
+    char *buf = malloc(WEB_TASKS_BUF);
+    if (!buf) {
+        return reply(req, "500 Internal Server Error", "Error: sin memoria");
+    }
+    cron_list(buf, WEB_TASKS_BUF);
+    httpd_resp_set_type(req, "application/json");
+    esp_err_t err = httpd_resp_sendstr(req, buf);
+    free(buf);
+    return err;
+}
+
+static bool send_log_line(const char *line, void *ctx)
+{
+    httpd_req_t *req = ctx;
+    return httpd_resp_sendstr_chunk(req, line) == ESP_OK &&
+           httpd_resp_sendstr_chunk(req, "\n") == ESP_OK;
+}
+
+static esp_err_t log_get(httpd_req_t *req)
+{
+    if (!check_pin(req)) {
+        return ESP_OK;
+    }
+    httpd_resp_set_type(req, "text/plain; charset=utf-8");
+    (void)task_log_read_recent(TASK_LOG_RECENT, send_log_line, req);
+    return httpd_resp_sendstr_chunk(req, NULL);
+}
+```
+
+- In `web_ota_start`:
+  - add `const httpd_uri_t tasks = { .uri = "/tasks", .method = HTTP_GET, .handler = tasks_get };` and `const httpd_uri_t log = { .uri = "/log", .method = HTTP_GET, .handler = log_get };`;
+  - set `config.max_uri_handlers = 4;`;
+  - register both after `upload`.
+
+  If `-Wshadow` complains about `log` shadowing the math builtin, name the variable `log_uri`.
+
+- [ ] **Step 7: Build and gate**
+
+Run the firmware build. Expected: `Project build complete`, no `error:`.
+Run the host gate. Expected: `host gate OK` (5 new format tests and 2 new agent tests `OK`).
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add main/task_log_format.h main/task_log_format.c main/task_log.h main/task_log.c main/agent.c main/web_ota.c main/CMakeLists.txt test/host/test_task_log_format.c test/host/mock_task_log.h test/host/mock_task_log.c test/host/test_agent.c test/host/test_runner.c scripts/test.sh
+git commit -m "feat: keep scheduled-task replies on the SD and list them on the web page
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
+```
+
+---
+
+### Task 9: Verification on the board and the other configuration
 
 **Files:** none (verification only; findings become fixes with tests, or ledger rulings).
 
@@ -2893,6 +3532,24 @@ curl -s -w ' %{http_code}\n' -H "X-OTA-PIN: $PIN" --data-binary @build/zclaw.bin
 Expected: `Actualizado. Reiniciando... 200`. After the reboot, `/status` over serial works, and the monitor log shows the board running from the other `ota_N` slot and the image marked valid after the stable window. Ask the user to open `http://<IP>/` in a browser once, to confirm the page renders.
 
 If the Mac cannot reach the board's LAN, ask the user to run the browser checks instead, and ledger it.
+
+- [ ] **Step 6b: Task log and tasks page**
+
+```bash
+python "$SCRATCH/serial_cmd.py" /dev/cu.usbmodem21201 "dentro de 1 minuto dime un refrán cubano" 40
+```
+Wait about 90 s. The user confirms an answer page with the `Tarea:` header appears when the task fires. Then, without printing the PIN:
+```bash
+PIN=$(sed -n 's/^CONFIG_ZCLAW_WEB_OTA_PIN="\(.*\)"$/\1/p' sdkconfig.defaults.esp32c6)
+curl -s -H "X-OTA-PIN: $PIN" "http://$IP/tasks"; echo; curl -s -H "X-OTA-PIN: $PIN" "http://$IP/log" | head -3; unset PIN
+curl -s -o /dev/null -w '%{http_code}\n' -H 'X-OTA-PIN: 0000' "http://$IP/log"
+```
+Expected:
+- the `/tasks` JSON parses (the one-off task is gone once it has fired, so `[]` is fine);
+- `/log` shows `<time>\t<action>\t<reply>` for the refrán;
+- `401` for the wrong PIN.
+
+The user opens the page, enters the PIN and taps "Ver tareas y avisos". The refrán shows under "Últimos avisos" with its time.
 
 - [ ] **Step 7: Heap**
 

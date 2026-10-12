@@ -22,6 +22,9 @@ Success criteria:
   board into it (rollback still active); a wrong PIN is refused.
 - No Telegram traffic or memory: no getUpdates, no Telegram TLS session.
 - The daily `memory_export` cron writes a file to the SD card.
+- The board's web page (same PIN) lists the scheduled tasks and the last 20
+  task results with their time; the results are kept on the SD card, so a
+  reminder nobody saw on the screen is not lost.
 - With `CONFIG_ZCLAW_TELEGRAM_ENABLE=y` (the default) everything behaves as
   before for other boards.
 
@@ -29,7 +32,7 @@ Success criteria:
 
 | Delivery | Content |
 |---|---|
-| **A (this spec)** | Telegram toggle, answer page, `display_dashboard` tool, web OTA, memory export to SD, IP on `/panel` |
+| **A (this spec)** | Telegram toggle, answer page, `display_dashboard` tool, web OTA, memory export to SD, IP on `/panel`, task log + tasks page |
 | B | Audio capture (ADC on GPIO0), double-clap detector, recording to SD, `listening` face + red LED, audio-quality probe |
 | C | Speech-to-text service on the VPS (NVIDIA Riva: Canary/Parakeet), transcript into the agent, "Dijiste: …" header |
 
@@ -144,6 +147,29 @@ characters (both set in the git-ignored board defaults).
 
 `/panel` gains an `IP` row so the address of the page is visible on screen.
 
+## 7b. Task log and tasks page
+
+Added after the spec review (user request): without Telegram, a scheduled
+task's reply is only on the screen for 8–45 s.
+
+- Every reply of a cron-triggered turn is appended to
+  `/sdcard/log/tasks.log`, one line per record:
+  `<unix seconds>\t<action>\t<reply>\n`. Inside the fields a backslash,
+  newline and tab are written as `\\`, `\n` and `\t`, and `\r` is dropped. The action
+  (without `[CRON n]`) is clipped to 256 bytes and the reply to 1024, never
+  inside a UTF-8 character. Normal (serial) replies are not logged.
+- Past 64 KB the file is renamed to `tasks.old.log` (replacing the previous
+  one) before the next append. Without a mounted SD nothing is logged.
+- The web page gains a "Tareas" section. The button "Ver tareas y avisos"
+  fetches, with the same `X-OTA-PIN` header:
+  - `GET /tasks`: the `cron_list` JSON (id, type, time or interval, action,
+    enabled);
+  - `GET /log`: the last 20 records, newest first, as plain text lines.
+
+  A wrong PIN waits 1 s and returns 401.
+- The page renders everything with `textContent` (stored LLM text is never
+  parsed as HTML). Times before 2020 show "sin hora".
+
 ## 8. Memory export to SD
 
 When Telegram is unavailable, `memory_export` writes the memories to
@@ -166,6 +192,7 @@ a mounted SD it returns an error.
 - Answer event dropped (queue full): the reply is still on serial.
 - Web OTA: every failure leaves the running firmware untouched.
 - Memory export without SD: error message, nothing lost (memories stay in NVS).
+- Task log without SD: nothing logged; the page says there are no results.
 
 ## 11. Resource budget
 
@@ -177,6 +204,8 @@ a mounted SD it returns an error.
 
 Host (TDD):
 
+- `task_log_format`: line format, escaping, clipping without splitting UTF-8.
+- Agent: a cron reply is logged with its action; a serial reply is not.
 - `text_layout`: Spanish text with accents, words longer than a line,
   explicit newlines, empty reply, header truncation, page count, durations
   (clamp, proportional split, 3 s minimum).
@@ -191,6 +220,8 @@ On the board:
 3. Web OTA: wrong PIN → 401; right PIN with `build/zclaw.bin` → reboot,
    running from the other slot, image confirmed after the stable window.
 4. `memory_export` creates the file on the SD.
+4b. A one-off task fires: its answer page says `Tarea:`, `/log` returns it,
+   and the page shows it under "Últimos avisos".
 5. No Telegram in the log; `/status` heap compared with the current
    108,100 free / 68,020 min.
 6. Builds with `ZCLAW_TELEGRAM_ENABLE=y` and with display disabled still
