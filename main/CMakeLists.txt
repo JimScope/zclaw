@@ -17,6 +17,7 @@ idf_component_register(
         "tools_net.c"
         "tools_ota.c"
         "tools_export.c"
+        "backup_name.c"
         "tools_tsens.c"
         "tools_i2c.c"
         "tools_dht.c"

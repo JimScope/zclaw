@@ -36,6 +36,7 @@ extern int test_dash_state_all(void);
 extern int test_text_layout_all(void);
 extern int test_agent_commands_all(void);
 extern int test_tools_dashboard_all(void);
+extern int test_backup_name_all(void);
 
 int main(int argc, char *argv[])
 {
@@ -75,6 +76,7 @@ int main(int argc, char *argv[])
     failures += test_text_layout_all();
     failures += test_agent_commands_all();
     failures += test_tools_dashboard_all();
+    failures += test_backup_name_all();
 
     printf("\n===================\n");
     if (failures == 0) {
