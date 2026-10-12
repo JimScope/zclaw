@@ -48,7 +48,7 @@ static void reset_state(void)
     mock_memory_reset();
     mock_ratelimit_reset();
     mock_tools_reset();
-    mock_llm_set_backend(LLM_BACKEND_ANTHROPIC, "mock-anthropic");
+    mock_llm_set_model("mock-model");
     agent_test_reset();
 }
 
@@ -57,7 +57,7 @@ TEST(retries_with_backoff_and_fanout)
     QueueHandle_t channel_q;
     char text[CHANNEL_TX_BUF_SIZE];
     const char *success =
-        "{\"content\":[{\"type\":\"text\",\"text\":\"retry succeeded\"}],\"stop_reason\":\"end_turn\"}";
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"retry succeeded\"},\"finish_reason\":\"stop\"}]}";
 
     reset_state();
 
@@ -142,7 +142,7 @@ TEST(failed_turn_does_not_pollute_followup_prompt)
     QueueHandle_t channel_q;
     char text[CHANNEL_TX_BUF_SIZE];
     const char *success =
-        "{\"content\":[{\"type\":\"text\",\"text\":\"fresh response\"}],\"stop_reason\":\"end_turn\"}";
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"fresh response\"},\"finish_reason\":\"stop\"}]}";
     const char *last_request = NULL;
 
     reset_state();
@@ -188,7 +188,7 @@ TEST(channel_output_allows_long_response)
     memset(long_text, 'x', sizeof(long_text) - 1);
     long_text[sizeof(long_text) - 1] = '\0';
     snprintf(response_json, sizeof(response_json),
-             "{\"content\":[{\"type\":\"text\",\"text\":\"%s\"}],\"stop_reason\":\"end_turn\"}",
+             "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"%s\"},\"finish_reason\":\"stop\"}]}",
              long_text);
 
     channel_q = xQueueCreate(2, sizeof(channel_output_msg_t));
@@ -239,7 +239,7 @@ TEST(stop_and_resume_pause_message_processing)
     QueueHandle_t channel_q;
     char text[CHANNEL_TX_BUF_SIZE];
     const char *success =
-        "{\"content\":[{\"type\":\"text\",\"text\":\"normal response\"}],\"stop_reason\":\"end_turn\"}";
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"normal response\"},\"finish_reason\":\"stop\"}]}";
 
     reset_state();
 
@@ -593,9 +593,9 @@ TEST(persona_phrases_route_through_llm)
     QueueHandle_t channel_q;
     char text[CHANNEL_TX_BUF_SIZE];
     const char *reply_one =
-        "{\"content\":[{\"type\":\"text\",\"text\":\"handled by llm\"}],\"stop_reason\":\"end_turn\"}";
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"handled by llm\"},\"finish_reason\":\"stop\"}]}";
     const char *reply_two =
-        "{\"content\":[{\"type\":\"text\",\"text\":\"through llm again\"}],\"stop_reason\":\"end_turn\"}";
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"through llm again\"},\"finish_reason\":\"stop\"}]}";
     const char *last_request = NULL;
 
     reset_state();
@@ -635,11 +635,12 @@ TEST(persona_can_change_via_llm_tool_call)
     QueueHandle_t channel_q;
     char text[CHANNEL_TX_BUF_SIZE];
     const char *tool_call =
-        "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_persona_1\","
-        "\"name\":\"set_persona\",\"input\":{\"persona\":\"friendly\"}}],"
-        "\"stop_reason\":\"tool_use\"}";
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"call_1\","
+        "\"type\":\"function\",\"function\":{\"name\":\"set_persona\","
+        "\"arguments\":\"{\\\"persona\\\":\\\"friendly\\\"}\"}}]},"
+        "\"finish_reason\":\"tool_calls\"}]}";
     const char *final_text =
-        "{\"content\":[{\"type\":\"text\",\"text\":\"persona changed\"}],\"stop_reason\":\"end_turn\"}";
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"persona changed\"},\"finish_reason\":\"stop\"}]}";
     const char *last_request = NULL;
 
     reset_state();
@@ -672,12 +673,13 @@ TEST(cron_trigger_blocks_cron_set_tool_call)
     QueueHandle_t channel_q;
     char text[CHANNEL_TX_BUF_SIZE];
     const char *tool_call =
-        "{\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_cron_1\","
-        "\"name\":\"cron_set\",\"input\":{\"type\":\"once\",\"delay_minutes\":1,"
-        "\"action\":\"arcade_power state=1\"}}],\"stop_reason\":\"tool_use\"}";
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"call_1\","
+        "\"type\":\"function\",\"function\":{\"name\":\"cron_set\","
+        "\"arguments\":\"{\\\"type\\\":\\\"once\\\",\\\"delay_minutes\\\":1,"
+        "\\\"action\\\":\\\"arcade_power state=1\\\"}\"}}]},"
+        "\"finish_reason\":\"tool_calls\"}]}";
     const char *final_text =
-        "{\"content\":[{\"type\":\"text\",\"text\":\"running scheduled action now\"}],"
-        "\"stop_reason\":\"end_turn\"}";
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"running scheduled action now\"},\"finish_reason\":\"stop\"}]}";
     const char *last_request = NULL;
 
     reset_state();
@@ -709,7 +711,7 @@ TEST(repeated_non_command_is_suppressed)
     QueueHandle_t channel_q;
     char text[CHANNEL_TX_BUF_SIZE];
     const char *success =
-        "{\"content\":[{\"type\":\"text\",\"text\":\"hi there\"}],\"stop_reason\":\"end_turn\"}";
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"hi there\"},\"finish_reason\":\"stop\"}]}";
 
     reset_state();
 
@@ -737,7 +739,7 @@ TEST(repeated_non_command_not_suppressed_after_failure)
     QueueHandle_t channel_q;
     char text[CHANNEL_TX_BUF_SIZE];
     const char *success =
-        "{\"content\":[{\"type\":\"text\",\"text\":\"recovered\"}],\"stop_reason\":\"end_turn\"}";
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"recovered\"},\"finish_reason\":\"stop\"}]}";
 
     reset_state();
 
@@ -772,8 +774,7 @@ TEST(reply_shows_answer_page_with_prompt)
     QueueHandle_t channel_q;
     char text[CHANNEL_TX_BUF_SIZE];
     const char *reply =
-        "{\"content\":[{\"type\":\"text\",\"text\":\"Son las 12:45 en Madrid.\"}],"
-        "\"stop_reason\":\"end_turn\"}";
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"Son las 12:45 en Madrid.\"},\"finish_reason\":\"stop\"}]}";
 
     reset_state();
     mock_display_reset();
@@ -802,7 +803,7 @@ TEST(cron_reply_shows_task_header)
 {
     QueueHandle_t channel_q;
     const char *reply =
-        "{\"content\":[{\"type\":\"text\",\"text\":\"Hoy hace sol.\"}],\"stop_reason\":\"end_turn\"}";
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"Hoy hace sol.\"},\"finish_reason\":\"stop\"}]}";
 
     reset_state();
     mock_display_reset();
@@ -875,7 +876,7 @@ TEST(screen_hint_in_prompt_only_with_display)
 {
     QueueHandle_t channel_q;
     const char *reply =
-        "{\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"stop_reason\":\"end_turn\"}";
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}";
 
     reset_state();
     mock_display_reset();
@@ -906,7 +907,7 @@ TEST(cron_reply_goes_to_task_log)
 {
     QueueHandle_t channel_q;
     const char *reply =
-        "{\"content\":[{\"type\":\"text\",\"text\":\"Hora de la medicina.\"}],\"stop_reason\":\"end_turn\"}";
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"Hora de la medicina.\"},\"finish_reason\":\"stop\"}]}";
 
     reset_state();
     mock_task_log_reset();
@@ -929,7 +930,7 @@ TEST(serial_reply_is_not_logged)
 {
     QueueHandle_t channel_q;
     const char *reply =
-        "{\"content\":[{\"type\":\"text\",\"text\":\"Hola.\"}],\"stop_reason\":\"end_turn\"}";
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"Hola.\"},\"finish_reason\":\"stop\"}]}";
 
     reset_state();
     mock_task_log_reset();
@@ -952,7 +953,7 @@ TEST(voice_reply_shows_dijiste_header)
 {
     QueueHandle_t channel_q;
     const char *reply =
-        "{\"content\":[{\"type\":\"text\",\"text\":\"Son las tres.\"}],\"stop_reason\":\"end_turn\"}";
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"Son las tres.\"},\"finish_reason\":\"stop\"}]}";
 
     reset_state();
     mock_display_reset();
@@ -978,7 +979,7 @@ TEST(repeated_voice_message_is_answered_twice)
 {
     QueueHandle_t channel_q;
     const char *reply =
-        "{\"content\":[{\"type\":\"text\",\"text\":\"Hola.\"}],\"stop_reason\":\"end_turn\"}";
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"Hola.\"},\"finish_reason\":\"stop\"}]}";
 
     reset_state();
     channel_q = xQueueCreate(4, sizeof(channel_output_msg_t));

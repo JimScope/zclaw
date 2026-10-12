@@ -13,12 +13,6 @@ menu "zclaw Configuration"
         help
             WiFi network password fallback. Leave empty to use NVS provisioning.
 
-    config ZCLAW_CLAUDE_API_KEY
-        string "LLM API Key (for testing only)"
-        default ""
-        help
-            Anthropic API key fallback. Leave empty to use NVS provisioning.
-
     config ZCLAW_ALLOW_UNENCRYPTED_NVS_FALLBACK
         bool "Allow unencrypted NVS fallback when flash encryption is enabled (dev only)"
         default n

@@ -9,7 +9,7 @@
 esp_err_t llm_init(void);
 
 // Send a request to LLM API
-// request_json: the complete API request body (format depends on backend)
+// request_json: the complete API request body (OpenAI chat completions format)
 // response_buf: buffer to store the response
 // response_buf_size: size of response buffer
 // Returns ESP_OK on success
@@ -18,20 +18,14 @@ esp_err_t llm_request(const char *request_json, char *response_buf, size_t respo
 // Check if we're in stub mode (QEMU testing)
 bool llm_is_stub_mode(void);
 
-// Get current backend type
-llm_backend_t llm_get_backend(void);
-
-// Get API URL for current backend
+// Get API URL
 const char *llm_get_api_url(void);
 
-// Get default model for current backend
+// Get default model
 const char *llm_get_default_model(void);
 
 // Get current model (user-configured or default)
 const char *llm_get_model(void);
-
-// Check if backend uses OpenAI-compatible format (OpenAI, OpenRouter, Ollama)
-bool llm_is_openai_format(void);
 
 #if CONFIG_ZCLAW_STUB_LLM
 // Host-test helper: indicates whether an API key is currently loaded in runtime state.

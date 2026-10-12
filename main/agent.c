@@ -759,8 +759,8 @@ static void process_message(const char *user_message, message_source_t source)
                 history_add("assistant", text_out, false, false, NULL, NULL);
                 send_response(text_out);
             } else {
-                history_add("assistant", "(No response from Claude)", false, false, NULL, NULL);
-                send_response("(No response from Claude)");
+                history_add("assistant", "(Sin respuesta del modelo)", false, false, NULL, NULL);
+                send_response("(Sin respuesta del modelo)");
             }
             json_free_parsed_response();
             done = true;

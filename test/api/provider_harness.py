@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import copy
 import json
-import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -300,33 +299,15 @@ class ProviderConfig:
     default_model: str
     model_env: str
     api_key_env: str
-    wire_format: str
 
 
 PROVIDERS = {
-    "anthropic": ProviderConfig(
-        name="anthropic",
-        api_url="https://api.anthropic.com/v1/messages",
-        default_model="claude-sonnet-4-6",
-        model_env="ANTHROPIC_MODEL",
-        api_key_env="ANTHROPIC_API_KEY",
-        wire_format="anthropic",
-    ),
     "openai": ProviderConfig(
         name="openai",
         api_url="https://api.openai.com/v1/chat/completions",
         default_model="gpt-5.4",
         model_env="OPENAI_MODEL",
         api_key_env="OPENAI_API_KEY",
-        wire_format="openai",
-    ),
-    "openrouter": ProviderConfig(
-        name="openrouter",
-        api_url="https://openrouter.ai/api/v1/chat/completions",
-        default_model="openrouter/auto",
-        model_env="OPENROUTER_MODEL",
-        api_key_env="OPENROUTER_API_KEY",
-        wire_format="openai",
     ),
 }
 
@@ -341,9 +322,6 @@ def _tool_defs_for_provider(provider: ProviderConfig, user_tools: list[dict[str,
                 "input_schema": {"type": "object", "properties": {}},
             }
         )
-
-    if provider.wire_format == "anthropic":
-        return base
 
     return [
         {
@@ -378,42 +356,25 @@ def call_api(
 
     tools = _tool_defs_for_provider(provider, user_tools)
 
-    if provider.wire_format == "anthropic":
-        headers = {
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        }
-        payload = {
-            "model": model,
-            "max_tokens": 1024,
-            "system": SYSTEM_PROMPT,
-            "tools": tools,
-            "messages": messages,
-        }
-    else:
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "content-type": "application/json",
-        }
-        if provider.name == "openrouter":
-            headers["HTTP-Referer"] = os.environ.get("OPENROUTER_HTTP_REFERER", "https://github.com/tnm/zclaw")
-            headers["X-Title"] = os.environ.get("OPENROUTER_X_TITLE", "zclaw api tests")
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "content-type": "application/json",
+    }
 
-        token_field, token_value = _openai_like_max_tokens_field(model)
+    token_field, token_value = _openai_like_max_tokens_field(model)
 
-        if not messages or messages[0].get("role") != "system":
-            messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                *messages,
-            ]
+    if not messages or messages[0].get("role") != "system":
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            *messages,
+        ]
 
-        payload = {
-            "model": model,
-            token_field: token_value,
-            "messages": messages,
-            "tools": tools,
-        }
+    payload = {
+        "model": model,
+        token_field: token_value,
+        "messages": messages,
+        "tools": tools,
+    }
 
     response = httpx.post(provider.api_url, headers=headers, json=payload, timeout=30)
     response.raise_for_status()
@@ -441,28 +402,6 @@ def handle_create_tool(input_data: dict[str, Any], user_tools: list[dict[str, st
         }
     )
     return str(MOCK_RESULTS["create_tool"](input_data))
-
-
-def _extract_anthropic_round(response: dict[str, Any]) -> tuple[str, list[dict[str, Any]], bool]:
-    stop_reason = response.get("stop_reason")
-    content = response.get("content", [])
-    text_response = ""
-    tool_uses: list[dict[str, Any]] = []
-
-    for block in content:
-        if block.get("type") == "text":
-            text_response = str(block.get("text", ""))
-        elif block.get("type") == "tool_use":
-            tool_uses.append(
-                {
-                    "id": str(block.get("id", "")),
-                    "name": str(block.get("name", "")),
-                    "input": block.get("input", {}),
-                }
-            )
-
-    done = stop_reason == "end_turn" or not tool_uses
-    return text_response, tool_uses, done
 
 
 def _parse_tool_args(arguments_raw: Any) -> dict[str, Any]:
@@ -533,13 +472,8 @@ def run_conversation(
     for round_num in range(max_rounds):
         response = call_api(provider, messages, api_key, model, user_tools)
 
-        if provider.wire_format == "anthropic":
-            text_response, tool_uses, done = _extract_anthropic_round(response)
-            assistant_msg = {"role": "assistant", "content": response.get("content", [])}
-            stop_reason = response.get("stop_reason")
-        else:
-            text_response, tool_uses, done, assistant_msg = _extract_openai_round(response)
-            stop_reason = response.get("choices", [{}])[0].get("finish_reason")
+        text_response, tool_uses, done, assistant_msg = _extract_openai_round(response)
+        stop_reason = response.get("choices", [{}])[0].get("finish_reason")
 
         if verbose:
             print(f"\n--- Round {round_num + 1} (stop_reason: {stop_reason}) ---")
@@ -555,44 +489,23 @@ def run_conversation(
 
         messages.append(assistant_msg)
 
-        if provider.wire_format == "anthropic":
-            tool_results = []
-            for tool_use in tool_uses:
-                tool_name = tool_use["name"]
-                tool_id = tool_use["id"]
-                tool_input = tool_use["input"]
+        for tool_use in tool_uses:
+            tool_name = tool_use["name"]
+            tool_id = tool_use["id"]
+            tool_input = tool_use["input"]
 
-                if verbose:
-                    print(f"TOOL CALL: {tool_name}({json.dumps(tool_input)})")
+            if verbose:
+                print(f"TOOL CALL: {tool_name}({json.dumps(tool_input)})")
 
-                if tool_name == "create_tool":
-                    result = handle_create_tool(tool_input, user_tools)
-                else:
-                    result = execute_tool(tool_name, tool_input, user_tools)
+            if tool_name == "create_tool":
+                result = handle_create_tool(tool_input, user_tools)
+            else:
+                result = execute_tool(tool_name, tool_input, user_tools)
 
-                if verbose:
-                    print(f"TOOL RESULT: {result}")
+            if verbose:
+                print(f"TOOL RESULT: {result}")
 
-                tool_results.append({"type": "tool_result", "tool_use_id": tool_id, "content": result})
-            messages.append({"role": "user", "content": tool_results})
-        else:
-            for tool_use in tool_uses:
-                tool_name = tool_use["name"]
-                tool_id = tool_use["id"]
-                tool_input = tool_use["input"]
-
-                if verbose:
-                    print(f"TOOL CALL: {tool_name}({json.dumps(tool_input)})")
-
-                if tool_name == "create_tool":
-                    result = handle_create_tool(tool_input, user_tools)
-                else:
-                    result = execute_tool(tool_name, tool_input, user_tools)
-
-                if verbose:
-                    print(f"TOOL RESULT: {result}")
-
-                messages.append({"role": "tool", "tool_call_id": tool_id, "content": result})
+            messages.append({"role": "tool", "tool_call_id": tool_id, "content": result})
 
     return "(Max rounds reached)"
 

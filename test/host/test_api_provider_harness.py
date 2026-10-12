@@ -35,26 +35,6 @@ class ProviderHarnessTests(unittest.TestCase):
         self.assertEqual(field, "max_tokens")
         self.assertEqual(value, 1024)
 
-    def test_extract_anthropic_round_tool_call(self) -> None:
-        response = {
-            "stop_reason": "tool_use",
-            "content": [
-                {"type": "text", "text": "Calling tool"},
-                {
-                    "type": "tool_use",
-                    "id": "toolu_123",
-                    "name": "gpio_write",
-                    "input": {"pin": 2, "state": 1},
-                },
-            ],
-        }
-        text, tool_uses, done = provider_harness._extract_anthropic_round(response)
-        self.assertEqual(text, "Calling tool")
-        self.assertFalse(done)
-        self.assertEqual(len(tool_uses), 1)
-        self.assertEqual(tool_uses[0]["name"], "gpio_write")
-        self.assertEqual(tool_uses[0]["input"]["pin"], 2)
-
     def test_extract_openai_round_tool_call(self) -> None:
         response = {
             "choices": [

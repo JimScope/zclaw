@@ -42,45 +42,9 @@ static const tool_def_t s_test_tools[] = {
     }
 };
 
-TEST(build_anthropic_request)
-{
-    mock_llm_set_backend(LLM_BACKEND_ANTHROPIC, "claude-test-model");
-
-    char *request = json_build_request("sys prompt", NULL, 0, "hello",
-                                       s_test_tools, 1);
-    ASSERT(request != NULL);
-
-    cJSON *root = cJSON_Parse(request);
-    ASSERT(root != NULL);
-
-    cJSON *model = cJSON_GetObjectItem(root, "model");
-    ASSERT(model != NULL && cJSON_IsString(model));
-    ASSERT_STR_EQ(model->valuestring, "claude-test-model");
-
-    cJSON *system = cJSON_GetObjectItem(root, "system");
-    ASSERT(system != NULL && cJSON_IsString(system));
-    ASSERT_STR_EQ(system->valuestring, "sys prompt");
-
-    cJSON *messages = cJSON_GetObjectItem(root, "messages");
-    ASSERT(messages != NULL && cJSON_IsArray(messages));
-    ASSERT(cJSON_GetArraySize(messages) == 1);
-
-    cJSON *tools = cJSON_GetObjectItem(root, "tools");
-    ASSERT(tools != NULL && cJSON_IsArray(tools));
-    ASSERT(cJSON_GetArraySize(tools) == 1);
-    cJSON *tool = cJSON_GetArrayItem(tools, 0);
-    ASSERT(tool != NULL);
-    cJSON *input_schema = cJSON_GetObjectItem(tool, "input_schema");
-    ASSERT(input_schema != NULL && cJSON_IsObject(input_schema));
-
-    cJSON_Delete(root);
-    free(request);
-    return 0;
-}
-
 TEST(build_openai_request)
 {
-    mock_llm_set_backend(LLM_BACKEND_OPENAI, "gpt-test-model");
+    mock_llm_set_model("gpt-test-model");
 
     char *request = json_build_request("sys prompt", NULL, 0, "hello",
                                        s_test_tools, 1);
@@ -125,30 +89,9 @@ TEST(build_openai_request)
     return 0;
 }
 
-TEST(build_openrouter_request)
-{
-    mock_llm_set_backend(LLM_BACKEND_OPENROUTER, "openrouter-test-model");
-
-    char *request = json_build_request("sys prompt", NULL, 0, "hello",
-                                       s_test_tools, 1);
-    ASSERT(request != NULL);
-
-    cJSON *root = cJSON_Parse(request);
-    ASSERT(root != NULL);
-
-    cJSON *max_tokens = cJSON_GetObjectItem(root, "max_tokens");
-    ASSERT(max_tokens != NULL && cJSON_IsNumber(max_tokens));
-    cJSON *max_completion_tokens = cJSON_GetObjectItem(root, "max_completion_tokens");
-    ASSERT(max_completion_tokens == NULL);
-
-    cJSON_Delete(root);
-    free(request);
-    return 0;
-}
-
 TEST(build_openai_request_skips_orphan_tool_result)
 {
-    mock_llm_set_backend(LLM_BACKEND_OPENAI, "gpt-test-model");
+    mock_llm_set_model("gpt-test-model");
 
     conversation_msg_t history[2] = {0};
 
@@ -187,39 +130,9 @@ TEST(build_openai_request_skips_orphan_tool_result)
     return 0;
 }
 
-TEST(parse_anthropic_tool_use)
-{
-    mock_llm_set_backend(LLM_BACKEND_ANTHROPIC, "claude-test-model");
-
-    const char *response = "{"
-        "\"content\":["
-        "{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"gpio_write\","
-        "\"input\":{\"pin\":10,\"state\":1}}"
-        "]"
-    "}";
-
-    char text[256] = {0};
-    char tool_name[32] = {0};
-    char tool_id[64] = {0};
-    cJSON *tool_input = NULL;
-
-    ASSERT(json_parse_response(response, text, sizeof(text),
-                               tool_name, sizeof(tool_name),
-                               tool_id, sizeof(tool_id),
-                               &tool_input));
-    ASSERT_STR_EQ(tool_name, "gpio_write");
-    ASSERT_STR_EQ(tool_id, "toolu_1");
-    ASSERT(tool_input != NULL);
-    ASSERT(cJSON_GetObjectItem(tool_input, "pin")->valueint == 10);
-    ASSERT(cJSON_GetObjectItem(tool_input, "state")->valueint == 1);
-
-    json_free_parsed_response();
-    return 0;
-}
-
 TEST(parse_openai_tool_call)
 {
-    mock_llm_set_backend(LLM_BACKEND_OPENAI, "gpt-test-model");
+    mock_llm_set_model("gpt-test-model");
 
     const char *response = "{"
         "\"choices\":[{"
@@ -259,7 +172,7 @@ TEST(parse_openai_tool_call)
 
 TEST(parse_api_error)
 {
-    mock_llm_set_backend(LLM_BACKEND_OPENAI, "gpt-test-model");
+    mock_llm_set_model("gpt-test-model");
 
     const char *response = "{"
         "\"error\":{\"message\":\"Invalid API key\"}"
@@ -289,13 +202,6 @@ int test_json_util_integration_all(void)
 
     printf("\njson_util Integration Tests:\n");
 
-    printf("  build_anthropic_request... ");
-    if (test_build_anthropic_request() == 0) {
-        printf("OK\n");
-    } else {
-        failures++;
-    }
-
     printf("  build_openai_request... ");
     if (test_build_openai_request() == 0) {
         printf("OK\n");
@@ -303,22 +209,8 @@ int test_json_util_integration_all(void)
         failures++;
     }
 
-    printf("  build_openrouter_request... ");
-    if (test_build_openrouter_request() == 0) {
-        printf("OK\n");
-    } else {
-        failures++;
-    }
-
     printf("  build_openai_request_skips_orphan_tool_result... ");
     if (test_build_openai_request_skips_orphan_tool_result() == 0) {
-        printf("OK\n");
-    } else {
-        failures++;
-    }
-
-    printf("  parse_anthropic_tool_use... ");
-    if (test_parse_anthropic_tool_use() == 0) {
         printf("OK\n");
     } else {
         failures++;

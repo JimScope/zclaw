@@ -1,5 +1,5 @@
 #!/bin/bash
-# Run live provider API integration checks (local/manual only).
+# Run live OpenAI API integration check (local/manual only).
 
 set -euo pipefail
 
@@ -10,12 +10,10 @@ PROVIDER="${1:-all}"
 MESSAGE="${2:-Create a tool to blink GPIO 2 twice and report what you did.}"
 
 usage() {
-    echo "Usage: $0 [anthropic|openai|openrouter|all] [message]"
+    echo "Usage: $0 [openai|all] [message]"
     echo ""
     echo "Env keys:"
-    echo "  ANTHROPIC_API_KEY"
     echo "  OPENAI_API_KEY"
-    echo "  OPENROUTER_API_KEY"
     echo ""
     echo "Examples:"
     echo "  $0 all"
@@ -37,19 +35,8 @@ run_provider() {
 }
 
 case "$PROVIDER" in
-    anthropic)
-        run_provider "anthropic" "ANTHROPIC_API_KEY"
-        ;;
-    openai)
+    openai|all)
         run_provider "openai" "OPENAI_API_KEY"
-        ;;
-    openrouter)
-        run_provider "openrouter" "OPENROUTER_API_KEY"
-        ;;
-    all)
-        run_provider "anthropic" "ANTHROPIC_API_KEY"
-        run_provider "openai" "OPENAI_API_KEY"
-        run_provider "openrouter" "OPENROUTER_API_KEY"
         ;;
     -h|--help)
         usage

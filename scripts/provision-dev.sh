@@ -12,7 +12,6 @@ PORT_OVERRIDE=""
 SSID_OVERRIDE=""
 PASS_OVERRIDE=""
 PASS_OVERRIDE_SET=false
-BACKEND_OVERRIDE=""
 MODEL_OVERRIDE=""
 API_KEY_OVERRIDE=""
 API_URL_OVERRIDE=""
@@ -36,7 +35,6 @@ Overrides:
   --port <serial-port>
   --ssid <wifi-ssid>
   --pass <wifi-pass>
-  --backend <provider>   anthropic | openai | openrouter | ollama
   --model <model-id>
   --api-key <key>
   --api-url <url>          Custom API endpoint URL
@@ -60,17 +58,13 @@ write_template() {
 ZCLAW_PORT=/dev/cu.usbmodem1101
 ZCLAW_WIFI_SSID=YourWifi
 ZCLAW_WIFI_PASS=YourWifiPassword
-ZCLAW_BACKEND=openai
 ZCLAW_MODEL=gpt-5.4
 ZCLAW_API_URL=
 
 # Prefer setting one API key here:
 ZCLAW_API_KEY=
-# Or rely on provider env vars instead:
+# Or rely on the OPENAI_API_KEY env var instead:
 # OPENAI_API_KEY=
-# ANTHROPIC_API_KEY=
-# OPENROUTER_API_KEY=
-# OLLAMA_API_KEY=
 EOF
     chmod 600 "$ENV_FILE"
     echo "Wrote template: $ENV_FILE"
@@ -93,7 +87,6 @@ mask_secret() {
 }
 
 resolve_api_key() {
-    local backend="$1"
     if [ -n "$API_KEY_OVERRIDE" ]; then
         printf '%s\n' "$API_KEY_OVERRIDE"
         return
@@ -102,24 +95,7 @@ resolve_api_key() {
         printf '%s\n' "$ZCLAW_API_KEY"
         return
     fi
-
-    case "$backend" in
-        openai)
-            printf '%s\n' "${OPENAI_API_KEY:-}"
-            ;;
-        anthropic)
-            printf '%s\n' "${ANTHROPIC_API_KEY:-}"
-            ;;
-        openrouter)
-            printf '%s\n' "${OPENROUTER_API_KEY:-}"
-            ;;
-        ollama)
-            printf '%s\n' "${OLLAMA_API_KEY:-}"
-            ;;
-        *)
-            printf '%s\n' ""
-            ;;
-    esac
+    printf '%s\n' "${OPENAI_API_KEY:-}"
 }
 
 print_redacted_command() {
@@ -170,11 +146,6 @@ while [ $# -gt 0 ]; do
             [ $# -ge 2 ] || { echo "Error: --pass requires a value."; exit 1; }
             PASS_OVERRIDE="$2"
             PASS_OVERRIDE_SET=true
-            shift 2
-            ;;
-        --backend)
-            [ $# -ge 2 ] || { echo "Error: --backend requires a value."; exit 1; }
-            BACKEND_OVERRIDE="$2"
             shift 2
             ;;
         --model)
@@ -242,7 +213,6 @@ fi
 
 PORT="${PORT_OVERRIDE:-${ZCLAW_PORT:-}}"
 SSID="${SSID_OVERRIDE:-${ZCLAW_WIFI_SSID:-}}"
-BACKEND="${BACKEND_OVERRIDE:-${ZCLAW_BACKEND:-openai}}"
 MODEL="${MODEL_OVERRIDE:-${ZCLAW_MODEL:-}}"
 API_URL="${API_URL_OVERRIDE:-${ZCLAW_API_URL:-}}"
 
@@ -257,16 +227,10 @@ else
     WIFI_PASS_SET=false
 fi
 
-API_KEY="$(resolve_api_key "$BACKEND")"
-if [ "$BACKEND" != "ollama" ] && [ -z "$API_KEY" ]; then
+API_KEY="$(resolve_api_key)"
+if [ -z "$API_KEY" ]; then
     echo "Error: API key not set."
-    echo "Set ZCLAW_API_KEY in $ENV_FILE, pass --api-key, or export backend-specific key env vars."
-    exit 1
-fi
-
-if [ "$BACKEND" = "ollama" ] && [ -z "$API_URL" ]; then
-    echo "Error: API URL not set for Ollama backend."
-    echo "Set ZCLAW_API_URL in $ENV_FILE or pass --api-url."
+    echo "Set ZCLAW_API_KEY in $ENV_FILE, pass --api-key, or export OPENAI_API_KEY."
     exit 1
 fi
 
@@ -275,8 +239,7 @@ if [ "$SHOW_CONFIG" = true ]; then
     echo "  Port: ${PORT:-<auto>}"
     echo "  WiFi SSID: ${SSID:-<auto-detect>}"
     echo "  WiFi pass: $(mask_secret "$WIFI_PASS")"
-    echo "  Backend: $BACKEND"
-    echo "  Model: ${MODEL:-<provider default>}"
+    echo "  Model: ${MODEL:-<default>}"
     echo "  API key: $(mask_secret "$API_KEY")"
     echo "  API URL: ${API_URL:-<default>}"
 fi
@@ -291,7 +254,6 @@ fi
 if [ "$WIFI_PASS_SET" = true ]; then
     PROVISION_ARGS+=(--pass "$WIFI_PASS")
 fi
-PROVISION_ARGS+=(--backend "$BACKEND")
 if [ -n "$MODEL" ]; then
     PROVISION_ARGS+=(--model "$MODEL")
 fi

@@ -12,7 +12,6 @@ typedef struct {
     bool has_response;
 } llm_result_t;
 
-static llm_backend_t s_backend = LLM_BACKEND_OPENAI;
 static char s_model[64] = "mock-model";
 static llm_result_t s_results[MOCK_MAX_RESULTS];
 static int s_result_count = 0;
@@ -29,9 +28,8 @@ void mock_llm_reset(void)
     s_last_request[0] = '\0';
 }
 
-void mock_llm_set_backend(llm_backend_t backend, const char *model)
+void mock_llm_set_model(const char *model)
 {
-    s_backend = backend;
     if (model && model[0] != '\0') {
         strncpy(s_model, model, sizeof(s_model) - 1);
         s_model[sizeof(s_model) - 1] = '\0';
@@ -75,7 +73,7 @@ esp_err_t llm_request(const char *request_json, char *response_buf, size_t respo
 {
     llm_result_t result = {0};
     const char *default_response =
-        "{\"content\":[{\"type\":\"text\",\"text\":\"mock ok\"}],\"stop_reason\":\"end_turn\"}";
+        "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"mock ok\"},\"finish_reason\":\"stop\"}]}";
 
     if (request_json) {
         snprintf(s_last_request, sizeof(s_last_request), "%s", request_json);
@@ -106,11 +104,6 @@ bool llm_is_stub_mode(void)
     return true;
 }
 
-llm_backend_t llm_get_backend(void)
-{
-    return s_backend;
-}
-
 const char *llm_get_api_url(void)
 {
     return "https://mock.invalid";
@@ -124,11 +117,4 @@ const char *llm_get_default_model(void)
 const char *llm_get_model(void)
 {
     return s_model;
-}
-
-bool llm_is_openai_format(void)
-{
-    return s_backend == LLM_BACKEND_OPENAI ||
-           s_backend == LLM_BACKEND_OPENROUTER ||
-           s_backend == LLM_BACKEND_OLLAMA;
 }
