@@ -30,9 +30,6 @@ typedef struct {
     uint8_t id;
     char action[CRON_MAX_ACTION_LEN];
 } pending_cron_fire_t;
-// Keep pending actions in static storage; allocating this on cron task stack
-// can exceed CRON_TASK_STACK_SIZE on smaller targets (e.g. ESP32-C6).
-static pending_cron_fire_t s_pending_fires[CRON_MAX_ENTRIES];
 
 static bool entries_lock(TickType_t timeout_ticks)
 {
@@ -481,12 +478,14 @@ static void check_entries(void)
     time(&now);
     localtime_r(&now, &timeinfo);
 
-    int pending_count = 0;
-
     if (!entries_lock(pdMS_TO_TICKS(1000))) {
         ESP_LOGW(TAG, "Skipping cron check: lock timeout");
         return;
     }
+
+    // First pass: find the entries that are due, without modifying anything.
+    uint8_t due[CRON_MAX_ENTRIES];
+    int due_count = 0;
 
     for (int i = 0; i < CRON_MAX_ENTRIES; i++) {
         cron_entry_t *entry = &s_entries[i];
@@ -517,43 +516,63 @@ static void check_entries(void)
         }
 
         if (should_fire) {
-            if (pending_count < CRON_MAX_ENTRIES) {
-                s_pending_fires[pending_count].id = entry->id;
-                strncpy(s_pending_fires[pending_count].action, entry->action, sizeof(s_pending_fires[pending_count].action) - 1);
-                s_pending_fires[pending_count].action[sizeof(s_pending_fires[pending_count].action) - 1] = '\0';
-                pending_count++;
-            }
+            due[due_count++] = (uint8_t)i;
+        }
+    }
 
-            if (entry->type == CRON_TYPE_ONCE) {
-                uint8_t fired_id = entry->id;
-                entry->id = 0;
-                if (save_entry(i) != ESP_OK) {
-                    entry->id = fired_id;
-                    ESP_LOGW(TAG, "Failed to clear one-shot cron %d after firing", fired_id);
-                }
-            } else {
-                entry->last_run = now;
-                if (save_entry(i) != ESP_OK) {
-                    ESP_LOGW(TAG, "Failed to persist run timestamp for cron %d", entry->id);
-                }
+    if (due_count == 0) {
+        entries_unlock();
+        return;
+    }
+
+    // Copies are made only for entries that fire, on the heap: the cron task's
+    // 4 KB stack cannot hold them and a static table would cost 4 KB forever.
+    pending_cron_fire_t *pending = malloc(due_count * sizeof(*pending));
+    if (!pending) {
+        ESP_LOGW(TAG, "Cron fire deferred: out of memory");
+        entries_unlock();
+        return;
+    }
+
+    for (int k = 0; k < due_count; k++) {
+        int i = due[k];
+        cron_entry_t *entry = &s_entries[i];
+
+        pending[k].id = entry->id;
+        strncpy(pending[k].action, entry->action, sizeof(pending[k].action) - 1);
+        pending[k].action[sizeof(pending[k].action) - 1] = '\0';
+
+        if (entry->type == CRON_TYPE_ONCE) {
+            uint8_t fired_id = entry->id;
+            entry->id = 0;
+            if (save_entry(i) != ESP_OK) {
+                entry->id = fired_id;
+                ESP_LOGW(TAG, "Failed to clear one-shot cron %d after firing", fired_id);
+            }
+        } else {
+            entry->last_run = now;
+            if (save_entry(i) != ESP_OK) {
+                ESP_LOGW(TAG, "Failed to persist run timestamp for cron %d", entry->id);
             }
         }
     }
 
     entries_unlock();
 
-    for (int i = 0; i < pending_count; i++) {
-        ESP_LOGI(TAG, "Firing cron %d: %s", s_pending_fires[i].id, s_pending_fires[i].action);
+    for (int k = 0; k < due_count; k++) {
+        ESP_LOGI(TAG, "Firing cron %d: %s", pending[k].id, pending[k].action);
 
         // Push action to agent queue
         channel_msg_t msg;
-        snprintf(msg.text, sizeof(msg.text), "[CRON %d] %s", s_pending_fires[i].id, s_pending_fires[i].action);
+        snprintf(msg.text, sizeof(msg.text), "[CRON %d] %s", pending[k].id, pending[k].action);
         msg.source = MSG_SOURCE_CRON;
 
         if (xQueueSend(s_agent_queue, &msg, pdMS_TO_TICKS(100)) != pdTRUE) {
             ESP_LOGW(TAG, "Agent queue full, cron action dropped");
         }
     }
+
+    free(pending);
 }
 
 // Cron task
