@@ -23,6 +23,9 @@ void local_admin_perform_action(local_admin_action_t action);
 
 bool local_admin_wifi_connect_from_store(void);
 
+// Station IPv4 address as text ("" while not connected). Device build only.
+const char *local_admin_current_ip(void);
+
 #ifdef TEST_BUILD
 void local_admin_test_reset(void);
 void local_admin_test_set_wifi_status(const char *status_text);

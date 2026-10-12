@@ -42,6 +42,8 @@ idf_component_register(
         "cron_utils.c"
         "ratelimit.c"
         "ota.c"
+        "web_ota.c"
+        "web_ota_policy.c"
         "boot_guard.c"
         "user_tools.c"
         "wifi_credentials.c"
@@ -87,6 +89,7 @@ idf_component_register(
         sdmmc
         esp_driver_sdspi
         esp_https_ota
+        esp_http_server
 )
 
 set(ZCLAW_RELEASE_VERSION "dev")

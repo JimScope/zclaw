@@ -80,6 +80,7 @@ run_host_tests() {
         test_agent_commands.c \
         test_tools_dashboard.c \
         test_backup_name.c \
+        test_web_ota_policy.c \
         test_runner.c \
         mock_esp.c \
         mock_memory.c \
@@ -126,6 +127,7 @@ run_host_tests() {
         ../../main/text_layout.c \
         ../../main/tools_dashboard.c \
         ../../main/backup_name.c \
+        ../../main/web_ota_policy.c \
         $CJSON_LDFLAGS 2>&1 || {
         echo "Note: Failed to compile tests. Install cJSON:"
         echo "  macOS:  brew install cjson"

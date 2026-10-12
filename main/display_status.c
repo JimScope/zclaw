@@ -12,6 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "llm.h"
+#include "local_admin.h"
 #include "ota.h"
 #include "status_format.h"
 #include "tools_handlers.h"
@@ -61,6 +62,10 @@ void display_status_draw(bool wifi_up)
         y += ROW_H;
         draw_row(y, "Se\xC3\xB1" "al", "--");
     }
+    y += ROW_H;
+
+    const char *ip = local_admin_current_ip();
+    draw_row(y, "IP", wifi_up && ip[0] ? ip : "--");
     y += ROW_H;
 
     float celsius = 0;

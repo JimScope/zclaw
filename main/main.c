@@ -5,6 +5,7 @@
 #include "llm.h"
 #include "tools.h"
 #include "telegram.h"
+#include "web_ota.h"
 #include "cron.h"
 #include "ratelimit.h"
 #include "ota.h"
@@ -322,6 +323,12 @@ void app_main(void)
 
     // 12. Initialize cron (includes NTP sync)
     ESP_ERROR_CHECK(cron_init());
+
+    // 12b. Optional firmware upload page on the LAN. Never fatal.
+    esp_err_t web_ota_err = web_ota_start();
+    if (web_ota_err != ESP_OK && web_ota_err != ESP_ERR_NOT_SUPPORTED) {
+        ESP_LOGW(TAG, "Web OTA unavailable: %s", esp_err_to_name(web_ota_err));
+    }
 
     // 13. Start Telegram channel
     if (telegram_enabled) {

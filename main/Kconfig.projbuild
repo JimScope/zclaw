@@ -50,6 +50,22 @@ menu "zclaw Configuration"
             When enabled, skips Telegram initialization.
             Useful for testing without WiFi.
 
+    config ZCLAW_WEB_OTA_ENABLE
+        bool "Firmware upload page on the LAN (port 80)"
+        default n
+        help
+            Serves a small page where a browser uploads build/zclaw.bin. Needs
+            ZCLAW_WEB_OTA_PIN; the new image still goes through the rollback
+            check after reboot.
+
+    config ZCLAW_WEB_OTA_PIN
+        string "PIN for the firmware upload page (4-32 characters)"
+        default ""
+        depends on ZCLAW_WEB_OTA_ENABLE
+        help
+            Keep it in the git-ignored sdkconfig.defaults.<target>. The page is
+            not started with a PIN shorter than 4 or longer than 32 characters.
+
     config ZCLAW_CHANNEL_UART
         bool "Use UART0 for local channel (QEMU-friendly)"
         default y if !SOC_USB_SERIAL_JTAG_SUPPORTED

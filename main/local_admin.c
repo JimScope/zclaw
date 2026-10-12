@@ -460,6 +460,11 @@ static bool format_wifi_scan(char *result, size_t result_len)
 
     return true;
 }
+
+const char *local_admin_current_ip(void)
+{
+    return s_current_ip;
+}
 #else
 static char s_test_wifi_status[256] = "WiFi status: mock";
 static char s_test_wifi_scan[256] = "WiFi scan: mock";
