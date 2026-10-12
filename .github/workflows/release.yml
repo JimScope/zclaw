@@ -84,10 +84,8 @@ jobs:
         run: |
           set -euo pipefail
           bootstrap_sha="$(sha256sum scripts/bootstrap.sh | awk '{print $1}')"
-          web_relay_sha="$(sha256sum scripts/bootstrap-web-relay.sh | awk '{print $1}')"
 
           echo "bootstrap_sha=$bootstrap_sha" >> "$GITHUB_OUTPUT"
-          echo "web_relay_sha=$web_relay_sha" >> "$GITHUB_OUTPUT"
 
       - name: Commit version bump and push tag
         env:
@@ -109,7 +107,6 @@ jobs:
       - name: Write release notes
         env:
           BOOTSTRAP_SHA: ${{ steps.checksums.outputs.bootstrap_sha }}
-          WEB_RELAY_SHA: ${{ steps.checksums.outputs.web_relay_sha }}
         run: |
           set -euo pipefail
           cat > RELEASE_NOTES.md <<EOF
@@ -122,17 +119,9 @@ jobs:
           bash <(curl -fsSL https://raw.githubusercontent.com/tnm/zclaw/main/scripts/bootstrap.sh)
           \`\`\`
 
-          Web relay bootstrap:
-
-          \`\`\`bash
-          ZCLAW_WEB_RELAY_BOOTSTRAP_SHA256="$WEB_RELAY_SHA" \\
-          bash <(curl -fsSL https://raw.githubusercontent.com/tnm/zclaw/main/scripts/bootstrap-web-relay.sh) -- --mock-agent
-          \`\`\`
-
           Raw values:
 
           - \`scripts/bootstrap.sh\`: \`$BOOTSTRAP_SHA\`
-          - \`scripts/bootstrap-web-relay.sh\`: \`$WEB_RELAY_SHA\`
           EOF
 
       - name: Create GitHub release

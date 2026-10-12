@@ -140,7 +140,7 @@ run_host_tests() {
 
     ./build/test_runner
 
-    # Compile and run real llm.c runtime tests in stub mode to keep host
+    # Compile and run real llm.c runtime tests in TEST_BUILD mode to keep host
     # coverage on production LLM backend initialization and request paths.
     gcc -o build/test_llm_runtime_runner $SANITIZE_FLAGS \
         -std=c99 \
@@ -179,10 +179,8 @@ run_host_tests() {
 
     ./build/test_ratelimit_runner
 
-    echo "=== Running host bridge Python tests ==="
+    echo "=== Running host Python tests ==="
     python3 -m unittest -q \
-        test_benchmark_latency.py \
-        test_web_relay.py \
         test_install_provision_scripts.py \
         test_api_provider_harness.py \
         test_face_assets.py
