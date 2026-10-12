@@ -62,6 +62,7 @@ idf_component_register(
         "face_state.c"
         "page_rotation.c"
         "status_format.c"
+        "text_layout.c"
     INCLUDE_DIRS "."
     REQUIRES
         nvs_flash
