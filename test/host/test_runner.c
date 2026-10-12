@@ -39,6 +39,7 @@ extern int test_tools_dashboard_all(void);
 extern int test_backup_name_all(void);
 extern int test_web_ota_policy_all(void);
 extern int test_task_log_format_all(void);
+extern int test_sd_access_all(void);
 
 int main(int argc, char *argv[])
 {
@@ -81,6 +82,7 @@ int main(int argc, char *argv[])
     failures += test_backup_name_all();
     failures += test_web_ota_policy_all();
     failures += test_task_log_format_all();
+    failures += test_sd_access_all();
 
     printf("\n===================\n");
     if (failures == 0) {

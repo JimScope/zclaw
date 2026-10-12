@@ -12,7 +12,13 @@
 bool sd_card_service(int64_t now_ms);
 bool sd_card_is_mounted(void);
 
-// Report an I/O error: unmounts and schedules a retry.
+// Other tasks wrap their file work in begin/end. begin is false when the card
+// is not mounted or failing; a failing card is unmounted (by sd_card_service,
+// display task) only after the last user called end.
+bool sd_card_begin(void);
+void sd_card_end(void);
+
+// Report an I/O error: no new users, unmount once idle, retry later.
 void sd_card_mark_failed(int64_t now_ms);
 
 #endif // SD_CARD_H

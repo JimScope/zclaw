@@ -23,13 +23,11 @@
 
 static const char *TAG = "task_log";
 
-void task_log_append(const char *action, const char *reply)
+// File work for task_log_append; the caller holds an SD user slot.
+static void append_record(const char *action, const char *reply)
 {
     struct stat st;
 
-    if (!sd_card_is_mounted()) {
-        return;
-    }
     if (mkdir(TASK_LOG_DIR, 0775) != 0 && errno != EEXIST) {
         ESP_LOGW(TAG, "Cannot create %s", TASK_LOG_DIR);
         return;
@@ -53,14 +51,24 @@ void task_log_append(const char *action, const char *reply)
     free(line);
 }
 
-int task_log_read_recent(size_t max, task_log_visit_fn visit, void *ctx)
+void task_log_append(const char *action, const char *reply)
+{
+    if (!sd_card_begin()) {
+        return;
+    }
+    append_record(action, reply);
+    sd_card_end();
+}
+
+// File work for task_log_read_recent; the caller holds an SD user slot.
+static int read_records(size_t max, task_log_visit_fn visit, void *ctx)
 {
     long starts[TASK_LOG_RECENT];
     size_t count = 0;
     size_t head = 0;
     struct stat st;
 
-    if (!visit || max == 0 || !sd_card_is_mounted() || stat(TASK_LOG_FILE, &st) != 0) {
+    if (stat(TASK_LOG_FILE, &st) != 0) {
         return -1;
     }
     if (max > TASK_LOG_RECENT) {
@@ -103,6 +111,16 @@ int task_log_read_recent(size_t max, task_log_visit_fn visit, void *ctx)
     fclose(f);
     free(line);
     return (int)visited;
+}
+
+int task_log_read_recent(size_t max, task_log_visit_fn visit, void *ctx)
+{
+    if (!visit || max == 0 || !sd_card_begin()) {
+        return -1;
+    }
+    int visited = read_records(max, visit, ctx);
+    sd_card_end();
+    return visited;
 }
 
 #else  // !CONFIG_ZCLAW_SD_ENABLE

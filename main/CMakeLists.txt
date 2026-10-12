@@ -54,6 +54,7 @@ idf_component_register(
         "display_gfx.c"
         "display.c"
         "sd_card.c"
+        "sd_access.c"
         "display_status.c"
         "display_face.c"
         "display_remote.c"

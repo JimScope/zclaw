@@ -115,17 +115,14 @@ static void file_emit(const char *key, const char *value, void *ctx)
     fprintf((FILE *)ctx, "%s = %s\n", key, value);
 }
 
-static bool export_to_sd(char *result, size_t result_len)
+// File work for export_to_sd; the caller holds an SD user slot.
+static bool write_backup(char *result, size_t result_len)
 {
     char name[48];
     char path[96];
     time_t now = time(NULL);
     struct tm tm;
 
-    if (!sd_card_is_mounted()) {
-        snprintf(result, result_len, "Error: no SD card mounted (and Telegram is not configured)");
-        return false;
-    }
     if (mkdir(SD_MOUNT_POINT "/backup", 0775) != 0 && errno != EEXIST) {
         snprintf(result, result_len, "Error: cannot create " SD_MOUNT_POINT "/backup");
         return false;
@@ -154,6 +151,17 @@ static bool export_to_sd(char *result, size_t result_len)
     }
     snprintf(result, result_len, "Exported %d user memories to %s", count, path);
     return true;
+}
+
+static bool export_to_sd(char *result, size_t result_len)
+{
+    if (!sd_card_begin()) {
+        snprintf(result, result_len, "Error: no SD card mounted (and Telegram is not configured)");
+        return false;
+    }
+    bool ok = write_backup(result, result_len);
+    sd_card_end();
+    return ok;
 }
 #else
 static bool export_to_sd(char *result, size_t result_len)
