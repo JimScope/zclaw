@@ -6,6 +6,7 @@
 #include "tools.h"
 #include "telegram.h"
 #include "web_ota.h"
+#include "voice.h"
 #include "cron.h"
 #include "ratelimit.h"
 #include "ota.h"
@@ -328,6 +329,12 @@ void app_main(void)
     esp_err_t web_ota_err = web_ota_start();
     if (web_ota_err != ESP_OK && web_ota_err != ESP_ERR_NOT_SUPPORTED) {
         ESP_LOGW(TAG, "Web OTA unavailable: %s", esp_err_to_name(web_ota_err));
+    }
+
+    // 12c. Optional voice input (microphone, double clap, speech to text). Never fatal.
+    esp_err_t voice_err = voice_start(input_queue);
+    if (voice_err != ESP_OK && voice_err != ESP_ERR_NOT_SUPPORTED) {
+        ESP_LOGW(TAG, "Voice unavailable: %s", esp_err_to_name(voice_err));
     }
 
     // 13. Start Telegram channel

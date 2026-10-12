@@ -112,6 +112,9 @@ static void reserved_rebuild(const char *board_csv)
     reserved_add(CONFIG_ZCLAW_SPI_MISO_GPIO);
     reserved_add(CONFIG_ZCLAW_SD_CS_GPIO);
 #endif
+#if CONFIG_ZCLAW_VOICE_ENABLE
+    reserved_add(CONFIG_ZCLAW_MIC_GPIO);
+#endif
     s_reserved_ready = true;
 }
 

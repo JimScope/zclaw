@@ -61,6 +61,8 @@ idf_component_register(
         "clap_detect.c"
         "endpoint.c"
         "stt_reply.c"
+        "audio_capture.c"
+        "stt_client.c"
         "voice.c"
         "display_status.c"
         "display_face.c"
@@ -101,6 +103,7 @@ idf_component_register(
         esp_driver_sdspi
         esp_https_ota
         esp_http_server
+        esp_adc
 )
 
 set(ZCLAW_RELEASE_VERSION "dev")

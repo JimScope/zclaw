@@ -271,6 +271,54 @@ menu "zclaw Configuration"
             depends on ZCLAW_SD_ENABLE
     endmenu
 
+    menu "Voice input"
+        config ZCLAW_VOICE_ENABLE
+            bool "Voice input: microphone, double clap, speech to text"
+            default n
+            help
+                MAX4466 on an ADC1 pin. Two claps open listening; the speech is
+                sent (IMA-ADPCM over HTTPS) to server/stt on the VPS and the
+                transcript reaches the agent like a typed message.
+
+        config ZCLAW_MIC_GPIO
+            int "Microphone GPIO (ADC1 channel)"
+            range 0 6
+            default 0
+            depends on ZCLAW_VOICE_ENABLE
+
+        config ZCLAW_STT_URL
+            string "Speech-to-text service URL"
+            default ""
+            depends on ZCLAW_VOICE_ENABLE
+            help
+                For example https://<VPS host>/stt/transcribe
+
+        config ZCLAW_STT_TOKEN
+            string "Token for the speech-to-text service (X-Stt-Token)"
+            default ""
+            depends on ZCLAW_VOICE_ENABLE
+            help
+                Keep it in the git-ignored sdkconfig.defaults.<target>.
+
+        config ZCLAW_CLAP_LEVEL_PCT
+            int "Clap peak level (% of full scale)"
+            range 5 100
+            default 40
+            depends on ZCLAW_VOICE_ENABLE
+
+        config ZCLAW_CLAP_RATIO
+            int "Clap peak / noise floor ratio"
+            range 2 50
+            default 6
+            depends on ZCLAW_VOICE_ENABLE
+
+        config ZCLAW_SPEECH_RATIO
+            int "Speech level / noise floor ratio"
+            range 2 20
+            default 3
+            depends on ZCLAW_VOICE_ENABLE
+    endmenu
+
     menu "Factory Reset"
         config ZCLAW_FACTORY_RESET_PIN
             int "Factory reset button GPIO"
