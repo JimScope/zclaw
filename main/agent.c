@@ -53,7 +53,6 @@ bool agent_is_busy(void)
     return s_busy;
 }
 static bool s_messages_paused = false;
-static char s_system_prompt_buf[AGENT_SYSTEM_PROMPT_BUF_SIZE];
 
 // Conversation history (rolling message buffer)
 static conversation_msg_t s_history_view[HISTORY_MAX_RECORDS];
@@ -362,9 +361,9 @@ static void process_message(const char *user_message, message_source_t source)
     }
 
     if (agent_is_command(user_message, "status")) {
-        // Static: keeps 1KB off the task stack. NOTE: firmware uses newlib
+        // Static: keeps 256 bytes. NOTE: firmware uses newlib
         // nano printf (no %lld support) - stick to %lu/%d here.
-        static char status_buf[CHANNEL_TX_BUF_SIZE];
+        static char status_buf[256];
         unsigned long up_min = (unsigned long)(esp_timer_get_time() / 60000000LL);
         wifi_ap_record_t ap = {0};
         int rssi = (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) ? ap.rssi : 0;
@@ -493,14 +492,18 @@ static void process_message(const char *user_message, message_source_t source)
         metrics.rounds = rounds;
 
         // Build request JSON (user message already in history)
-        char *request = json_build_request(
-            agent_build_system_prompt(s_system_prompt_buf, sizeof(s_system_prompt_buf)),
-            s_history_view,
-            history_view(s_history_view, HISTORY_MAX_RECORDS),
-            NULL,  // User message already in history
-            tools,
-            tool_count
+        char *prompt_buf = malloc(AGENT_SYSTEM_PROMPT_BUF_SIZE);
+        // Without the buffer the base prompt still goes out (no pin policy line).
+        const char *prompt = agent_build_system_prompt(prompt_buf,
+                                                       prompt_buf ? AGENT_SYSTEM_PROMPT_BUF_SIZE : 0);
+        char *request = json_build_request(prompt,
+                                           s_history_view,
+                                           history_view(s_history_view, HISTORY_MAX_RECORDS),
+                                           NULL,  // User message already in history
+                                           tools,
+                                           tool_count
         );
+        free(prompt_buf);
 
         if (!request) {
             ESP_LOGE(TAG, "Failed to build request JSON");

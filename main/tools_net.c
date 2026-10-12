@@ -204,17 +204,25 @@ bool tools_web_search_handler(const cJSON *input, char *result, size_t result_le
         return false;
     }
 
-    static char html[WEB_SEARCH_HTML_MAX];
+    char *html = malloc(WEB_SEARCH_HTML_MAX);
+    if (!html) {
+        http_gate_release();
+        snprintf(result, result_len, "Error: out of memory for search");
+        return false;
+    }
+
     int status = net_http_request(url, HTTP_METHOD_GET,
                                   "User-Agent", "Mozilla/5.0 (compatible; zclaw-esp32)",
-                                  NULL, html, sizeof(html));
+                                  NULL, html, WEB_SEARCH_HTML_MAX);
     http_gate_release();
 
     if (status < 0) {
+        free(html);
         snprintf(result, result_len, "Error: search request failed (network)");
         return false;
     }
     if (status < 200 || status >= 300) {
+        free(html);
         snprintf(result, result_len, "Error: search HTTP %d", status);
         return false;
     }
@@ -222,6 +230,7 @@ bool tools_web_search_handler(const cJSON *input, char *result, size_t result_le
     char text[480];
     html_strip_into(html, text, sizeof(text));
     snprintf(result, result_len, "Search results (truncated): %s", text);
+    free(html);
     return true;
 }
 
