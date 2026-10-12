@@ -166,6 +166,12 @@ static void send_recording(void)
     } else if (!s_buf || s_buf_len <= ADPCM_HEADER_BYTES) {
         err = ESP_ERR_INVALID_SIZE;
     } else {
+        // Hand the unused tail of the buffer back before the TLS handshake, the
+        // turn's heap low point. The audio task no longer touches s_buf (SENDING).
+        uint8_t *fit = realloc(s_buf, s_buf_len);
+        if (fit) {
+            s_buf = fit;
+        }
         err = stt_client_transcribe(s_buf, s_buf_len, text, sizeof(text), &status);
     }
     release_buffer();  // before the agent's LLM request needs the heap
